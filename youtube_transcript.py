@@ -5,44 +5,8 @@ import pandas as pd
 from youtube_transcript_api import YouTubeTranscriptApi
 import json
 import tiktoken
+from utils import Helper
 config_path = "config.json"
-
-class Helper:
-    def load_config(self):
-        """Loads configuration from a JSON file.
-
-        Returns:
-            dict: The loaded configuration dictionary, or None if there's an error.
-        """
-        try:
-            with open(config_path, "r") as config_file:
-                config = json.load(config_file)
-                return config
-        except FileNotFoundError:
-            print(f"Error: Configuration file '{config_path}' not found.")
-            # Handle the case where the file is missing (optional)
-            exit(1)
-    
-    def save_df_to_csv(self, dataframe):
-        """
-        Save a Pandas DataFrame to a CSV file.
-
-        Parameters:
-        dataframe (pandas.DataFrame): The DataFrame to be saved.
-        file_path (str): The file path where the CSV file will be saved.
-
-        Returns:
-        None
-        """
-        folder_name = 'youtube_dataframe'
-        if not os.path.exists(folder_name):
-            os.makedirs(folder_name)
-        
-     # Save DataFrame to CSV
-        dataframe.to_csv(f"{folder_name}/output.csv", index=False)
-        print(f"DataFrame successfully saved to {folder_name}/output.csv")
-
-
 
 class YouTubeSearcher:
     def __init__(self, api_key):
@@ -207,7 +171,7 @@ class TranscriptProcessor:
 
 def main():
     # Example usage
-    helper = Helper()
+    helper = Helper(config_path)
     config = helper.load_config()
     youtube_api_key = config["YOUTUBE_API_KEY"]
     youtube_searcher = YouTubeSearcher(youtube_api_key)

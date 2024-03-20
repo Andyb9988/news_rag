@@ -8,19 +8,8 @@ import numpy as np
 import openai 
 import langchain
 import json
-
+from utils import Helper
 config_path = "config.json"
-try:
-    with open(config_path, "r") as config_file:
-        config = json.load(config_file)
-        hf_token = config["HF_TOKEN"]
-        pinecone_api = config["PINECONE_API_KEY"]
-        openai_api = config["OPENAI_API_KEY"]
-
-except FileNotFoundError:
-    print(f"Error: Configuration file '{config_path}' not found.")
-    # Handle the case where the file is missing (optional)
-    exit(1)
 
 df = pd.read_csv(r"youtube_dataframe/output.csv")
 
@@ -44,8 +33,13 @@ def create_pinecone_index():
     return index
 
 
-
 def main():
+    helper = Helper(config_path)
+    config = helper.load_config()
+    youtube_api_key = config["YOUTUBE_API_KEY"]
+    hf_token = config["HF_TOKEN"]
+    pinecone_api = config["PINECONE_API_KEY"]
+    openai_api = config["OPENAI_API_KEY"]
     create_pinecone_index()
    
 
