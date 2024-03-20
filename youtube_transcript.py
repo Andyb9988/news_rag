@@ -5,184 +5,190 @@ import pandas as pd
 from youtube_transcript_api import YouTubeTranscriptApi
 import json
 import tiktoken
+from utils import Helper
 config_path = "config.json"
 
+class YouTubeSearcher:
+    def __init__(self, api_key):
+        self.youtube = build('youtube', 'v3', developerKey=api_key)
+    
+    def get_video_list_by_search(self, max_results=15):
+        """Searches for videos on YouTube using the Youtube Data API.
 
-try:
-    with open(config_path, "r") as config_file:
-        config = json.load(config_file)
-        youtube_api_key = config["YOUTUBE_API_KEY"]
-except FileNotFoundError:
-    print(f"Error: Configuration file '{config_path}' not found.")
-    # Handle the case where the file is missing (optional)
-    exit(1)
+        Args:
+            max_results (int, optional): The maximum number of results to return. Defaults to 15.
 
-def youtube_search(max_results=15):
-    query = str(input("What topic would you like summarised with Youtube videos: "))
-    youtube = build('youtube', 'v3', developerKey=youtube_api_key)
-
-    request = youtube.search().list(
-        q=query,
-        part='snippet',
-        type='video',
-        maxResults=max_results
-    )
-    response = request.execute()
-
-    video_urls = []
-    for item in response['items']:
-        video_id = item['id']['videoId']
-        video_url = f'https://www.youtube.com/watch?v={video_id}'
-        video_urls.append(video_url)
-
-    return video_urls
-
-def get_video_metadata(video_urls):
-    metadata_list = []
-    youtube = build('youtube', 'v3', developerKey=youtube_api_key)
-    for video_url in video_urls:
-        video_id = video_url.split('v=')[-1].split('&')[0]
-
-        request = youtube.videos().list(
+        Returns:
+            list: A list of video URLs.
+        """
+        query = str(input("What topic would you like summarised with Youtube videos: "))
+        request = self.youtube.search().list(
+            q=query,
             part='snippet',
-            id=video_id
+            type='video',
+            maxResults=max_results
         )
         response = request.execute()
-        video_items = response['items']
 
-        if video_items:
-            video_item = video_items[0]
-            snippet = video_item['snippet']
-            metadata = {
-                'Title': snippet['title'],
-                'Published_at': snippet['publishedAt'],
-                'Channel': snippet["channelTitle"],
-                'URL': f"https://www.youtube.com/watch?v={video_id}",
-                "Video_id": video_id
-            }
-            metadata_list.append(metadata)
-        else:
-            print(f'No video found with ID {video_id}')
-    
-    video_meta_df = pd.DataFrame(metadata_list)
+        video_urls = []
+        for item in response['items']:
+            video_id = item['id']['videoId']
+            video_url = f'https://www.youtube.com/watch?v={video_id}'
+            video_urls.append(video_url)
 
-    return video_meta_df
+        return video_urls
 
-"""If subtitles are una"""
+    def get_video_metadata(self, video_urls):
+        """
+        Fetches metadata for a list of YouTube videos.
 
-def save_youtube_transcripts(urls):
-    # Create a folder if it doesn't exist
-    folder_name = 'youtube_transcripts'
-    if not os.path.exists(folder_name):
-        os.makedirs(folder_name)
+        This function iterates over a list of YouTube video URLs, extracts the video ID from each URL,
+        and uses the YouTube Data API to retrieve the video's metadata.
+        The metadata is then compiled into a DataFrame for easy manipulation.
 
-    for url in urls:
-        video_id = url.split('v=')[-1].split('&')[0]
+        Parameters:
+        - video_urls (list): A list of YouTube video URLs.
 
-        transcript_file_path = os.path.join(folder_name, f'{video_id}.txt')
-        if os.path.exists(transcript_file_path):
-            print(f"Transcript already exists for video {video_id}")
-            continue
-        try:
-            transcript = YouTubeTranscriptApi.get_transcript(video_id)
-            # Write transcript to a file
-            with open(f'{folder_name}/{video_id}.txt', 'w', encoding='utf-8') as file:
-                for sentence in transcript:
-                    file.write(sentence['text'] + '\n')
-            print(f"Transcript saved for video {video_id}")
-        except Exception as e:
-            print(f"Error fetching transcript for {url}: {e}")
+        Returns:
+        - pandas.DataFrame: A DataFrame containing the metadata for each video.
+        """
+        metadata_list = []
+        for video_url in video_urls:
+            video_id = video_url.split('v=')[-1].split('&')[0]
 
-def create_transcript_column(df):
-  # Define the folder containing transcripts
-    transcripts_folder = 'youtube_transcripts'
+            request = self.youtube.videos().list(
+                part='snippet',
+                id=video_id
+            )
+            response = request.execute()
+            video_items = response['items']
 
-  # Loop through transcript files in the folder
-    for filename in os.listdir(transcripts_folder):
-        if filename.endswith('.txt'):
-            video_id = os.path.splitext(filename)[0]  # Extract video ID from filename
-            file_path = os.path.join(transcripts_folder, filename)
-
-            with open(file_path, 'r', encoding='utf-8') as file:
-                transcript_content = file.read()
-          # Find the corresponding row in the DataFrame and add the transcript content
-                df.loc[df['Video_id'] == video_id, 'transcript'] = transcript_content
-
-    return df
-
-def lambda_clean_transcript_text(text):
-    text = text.replace("[Music]", "")
-    text = text.replace("\n", " ")
-    text = text.replace("[Applause]", "")
-    return text
-
-# Apply the function to the "text" column using lambda function
-def clean_transcript_text(df):
-    df["clean_transcript"] = df["transcript"].apply(lambda x: lambda_clean_transcript_text(x))
-    df.drop(columns=["transcript"], inplace=True)
-    return df
-
-def num_tokens_from_string(string: str, encoding_name: str) -> int:
-    """Returns the number of tokens in a text string."""
-    encoding = tiktoken.get_encoding(encoding_name)
-    num_tokens = len(encoding.encode(string))
-    return num_tokens
-
-# Assuming 'df' is your DataFrame containing the transcript column
-def count_tokens(df):
-    token_counts = []
-    for transcript in df['clean_transcript']:
-        num_tokens = num_tokens_from_string(transcript, "cl100k_base")
-        token_counts.append(num_tokens)
-    df['num_tokens'] = token_counts
-    return df
-
-def drop_columns_exceeding_token(df):
-# Define the threshold for the number of tokens
-    threshold_tokens = 8192
-
-    # Iterate through the dataset and drop rows where the number of tokens is less than 8192
-    for index, row in df.iterrows():
-        if row['num_tokens'] > threshold_tokens:
-            df.drop(index, inplace=True)
-
-    # Reset the index after dropping rows
-    df.reset_index(drop=True, inplace=True)
-    print(f"The df has {df.shape[0]} rows")
-    return df
-
-
-def save_df_to_csv(dataframe):
-    """
-    Save a Pandas DataFrame to a CSV file.
-
-    Parameters:
-    dataframe (pandas.DataFrame): The DataFrame to be saved.
-    file_path (str): The file path where the CSV file will be saved.
-
-    Returns:
-    None
-    """
-
-    folder_name = 'youtube_dataframe'
-    if not os.path.exists(folder_name):
-        os.makedirs(folder_name)
+            if video_items:
+                video_item = video_items[0]
+                snippet = video_item['snippet']
+                metadata = {
+                    'Title': snippet['title'],
+                    'Published_at': snippet['publishedAt'],
+                    'Channel': snippet["channelTitle"],
+                    'URL': f"https://www.youtube.com/watch?v={video_id}",
+                    "Video_id": video_id
+                }
+                metadata_list.append(metadata)
+            else:
+                print(f'No video found with ID {video_id}')
         
-     # Save DataFrame to CSV
-    dataframe.to_csv(f"{folder_name}/output.csv", index=False)
-    print(f"DataFrame successfully saved to {folder_name}/output.csv")
+        video_meta_df = pd.DataFrame(metadata_list)
+        return video_meta_df
 
+    def save_youtube_transcripts(self, video_urls):
+        """
+            Saves transcripts of YouTube videos to text files.
+
+            This function iterates over a list of YouTube video URLs, extracts the video ID from each URL,
+            and uses the YouTube Transcript API to fetch the video's transcript. The transcript is then
+            saved to a text file in a specified folder. If a transcript already exists for a video, the function
+            skips that video.
+
+            Parameters:
+            - urls (list): A list of YouTube video URLs.
+
+            Returns:
+            - None
+        """
+        folder_name = 'youtube_transcripts'
+        if not os.path.exists(folder_name):
+            os.makedirs(folder_name)
+
+        for url in video_urls:
+            video_id = url.split('v=')[-1].split('&')[0]
+
+            transcript_file_path = os.path.join(folder_name, f'{video_id}.txt')
+            if os.path.exists(transcript_file_path):
+                print(f"Transcript already exists for video {video_id}")
+                continue
+            try:
+                transcript = YouTubeTranscriptApi.get_transcript(video_id)
+                # Write transcript to a file
+                with open(f'{folder_name}/{video_id}.txt', 'w', encoding='utf-8') as file:
+                    for sentence in transcript:
+                        file.write(sentence['text'] + '\n')
+                print(f"Transcript saved for video {video_id}")
+            except Exception as e:
+                print(f"Error fetching transcript for {url}: {e}")
+
+class TranscriptProcessor:
+    def __init__(self, df):
+        self.df = df
+
+    @staticmethod
+    def num_tokens_from_string(string: str, encoding_name: str) -> int:
+        """Returns the number of tokens in a text string."""
+        encoding = tiktoken.get_encoding(encoding_name)
+        num_tokens = len(encoding.encode(string))
+        return num_tokens
+    
+    @staticmethod
+    def lambda_clean_transcript_text(text):
+        text = text.replace("[Music]", "")
+        text = text.replace("\n", " ")
+        text = text.replace("[Applause]", "")
+        return text
+    
+    def create_transcript_column(self, transcripts_folder: str):
+    # Loop through transcript files in the folder
+        for filename in os.listdir(transcripts_folder):
+            if filename.endswith('.txt'):
+                video_id = os.path.splitext(filename)[0]  # Extract video ID from filename
+                file_path = os.path.join(transcripts_folder, filename)
+
+                with open(file_path, 'r', encoding='utf-8') as file:
+                    transcript_content = file.read()
+            # Find the corresponding row in the DataFrame and add the transcript content
+                    self.df.loc[self.df['Video_id'] == video_id, 'transcript'] = transcript_content
+
+        return self.df
+
+    # Apply the function to the "text" column using lambda function
+    def clean_transcript_text(self):
+        self.df["clean_transcript"] = self.df["transcript"].apply(lambda x: self.lambda_clean_transcript_text(x))
+        self.df.drop(columns=["transcript"], inplace=True)
+        return self.df
+
+
+    def count_number_of_tokens(self):
+        token_counts = []
+        for transcript in self.df['clean_transcript']:
+            num_tokens = self.num_tokens_from_string(transcript, "cl100k_base")
+            token_counts.append(num_tokens)
+        self.df['num_tokens'] = token_counts
+        return self.df
+
+    def drop_columns_exceeding_token_length(self):
+        threshold_tokens = 8192
+        self.df = self.df[self.df['num_tokens'] <= threshold_tokens].reset_index(drop=True)
+        print(f"The df has {self.df.shape[0]} rows")
+        return self.df
 
 def main():
     # Example usage
-    video_urls = youtube_search(max_results=15)
-    df =  get_video_metadata(video_urls)
-    save_youtube_transcripts(video_urls)
-    df = create_transcript_column(df)
-    df = clean_transcript_text(df)
-    df = count_tokens(df)
-    df = drop_columns_exceeding_token(df)
-    save_df_to_csv(df)
+    helper = Helper(config_path)
+    config = helper.load_config()
+    youtube_api_key = config["YOUTUBE_API_KEY"]
+    youtube_searcher = YouTubeSearcher(youtube_api_key)
+
+    video_urls = youtube_searcher.get_video_list_by_search(max_results=15)
+    df = youtube_searcher.get_video_metadata(video_urls)
+
+    youtube_searcher.save_youtube_transcripts(video_urls)
+    # Initialize TranscriptProcessor instance with your DataFrame
+    transcript_processor = TranscriptProcessor(df)
+
+    # Call each method sequentially
+    transcript_processor.create_transcript_column('youtube_transcripts')
+    transcript_processor.clean_transcript_text()
+    transcript_processor.count_number_of_tokens()
+    transcript_processor.drop_columns_exceeding_token_length()
+    helper.save_df_to_csv(df)
 
 if __name__ == '__main__':
     main()
