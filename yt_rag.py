@@ -13,24 +13,25 @@ config_path = "config.json"
 
 df = pd.read_csv(r"youtube_dataframe/output.csv")
 
-pc = Pinecone(
-        api_key=pinecone_api
-    )
-def create_pinecone_index():
-    index_name = 'fpl-rag'
-    # Now do stuff
-    if index_name not in pc.list_indexes().names():
-        pc.create_index(
-            name=index_name,
-            dimension=1536,
-            metric='cosine',
-            spec=ServerlessSpec(
-                cloud='aws',
-                region='us-west-2'
+class Pinecone_API:
+    def __init__(self, api_key):
+        self.pc = Pinecone(api_key=api_key)
+
+    def create_pinecone_index(self):
+        index_name = 'fpl-rag'
+        # Now do stuff
+        if index_name not in self.pc.list_indexes().names():
+            self.pc.create_index(
+                name=index_name,
+                dimension=1536,
+                metric='cosine',
+                spec=ServerlessSpec(
+                    cloud='aws',
+                    region='us-west-2'
+                )
             )
-        )
-    index = pc.Index(index_name)
-    return index
+        index = self.pc.Index(index_name)
+        return index
 
 
 def main():
@@ -40,7 +41,9 @@ def main():
     hf_token = config["HF_TOKEN"]
     pinecone_api = config["PINECONE_API_KEY"]
     openai_api = config["OPENAI_API_KEY"]
-    create_pinecone_index()
+
+    pinecone = Pinecone_API(pinecone_api)
+    pinecone.create_pinecone_index()
    
 
 if __name__ == "__main__":

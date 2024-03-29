@@ -6,13 +6,16 @@ from youtube_transcript_api import YouTubeTranscriptApi
 import json
 import tiktoken
 from utils import Helper
+from google.cloud import storage
+import json
+from io import BytesIO
 config_path = "config.json"
 
 class YouTubeSearcher:
     def __init__(self, api_key):
         self.youtube = build('youtube', 'v3', developerKey=api_key)
     
-    def get_video_list_by_search(self, max_results=15):
+    def get_video_list_by_search(self, max_results=5):
         """Searches for videos on YouTube using the Youtube Data API.
 
         Args:
@@ -21,20 +24,31 @@ class YouTubeSearcher:
         Returns:
             list: A list of video URLs.
         """
-        query = str(input("What topic would you like summarised with Youtube videos: "))
-        request = self.youtube.search().list(
-            q=query,
-            part='snippet',
-            type='video',
-            maxResults=max_results
-        )
-        response = request.execute()
-
         video_urls = []
-        for item in response['items']:
-            video_id = item['id']['videoId']
-            video_url = f'https://www.youtube.com/watch?v={video_id}'
-            video_urls.append(video_url)
+
+        while True:
+            query = str(input("What topic would you like summarised with Youtube videos: "))
+
+            if query.lower() == 'done':
+                break
+
+            request = self.youtube.search().list(
+                q=query,
+                part='snippet',
+                type='video',
+                maxResults=max_results
+            )
+            response = request.execute()
+            for item in response['items']:
+                video_id = item['id']['videoId']
+                video_url = f'https://www.youtube.com/watch?v={video_id}'
+                video_urls.append(video_url)
+
+            print(f"Number of items in the list: {len(video_urls)}")
+
+            if len(video_urls) >= 5:
+                print("Max video limit (5) reached")
+                break
 
         return video_urls
 
@@ -50,7 +64,7 @@ class YouTubeSearcher:
         - video_urls (list): A list of YouTube video URLs.
 
         Returns:
-        - pandas.DataFrame: A DataFrame containing the metadata for each video.
+        - List of dictionaries: A list containing the metadata for each video.
         """
         metadata_list = []
         for video_url in video_urls:
@@ -74,47 +88,79 @@ class YouTubeSearcher:
                     "Video_id": video_id
                 }
                 metadata_list.append(metadata)
+                print("Video metadata found, now appending to list")
             else:
                 print(f'No video found with ID {video_id}')
         
-        video_meta_df = pd.DataFrame(metadata_list)
-        return video_meta_df
+        #video_meta_df = pd.DataFrame(metadata_list)
+        return metadata_list
 
-    def save_youtube_transcripts(self, video_urls):
+    def upload_transcript_to_gcs(self, video_urls, bucket_name, folder_name):
         """
-            Saves transcripts of YouTube videos to text files.
+        Fetches transcripts of YouTube videos and uploads them directly to GCS as .txt files.
 
-            This function iterates over a list of YouTube video URLs, extracts the video ID from each URL,
-            and uses the YouTube Transcript API to fetch the video's transcript. The transcript is then
-            saved to a text file in a specified folder. If a transcript already exists for a video, the function
-            skips that video.
-
-            Parameters:
-            - urls (list): A list of YouTube video URLs.
-
-            Returns:
-            - None
+        Parameters:
+        - video_urls (list): A list of YouTube video URLs.
+        - bucket_name (str): The name of the GCS bucket.
+        - folder_name (str): The name of the folder within the GCS bucket.
         """
-        folder_name = 'youtube_transcripts'
-        if not os.path.exists(folder_name):
-            os.makedirs(folder_name)
-
+        # Initialize the Google Cloud Storage client
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(bucket_name)
+        
         for url in video_urls:
             video_id = url.split('v=')[-1].split('&')[0]
-
-            transcript_file_path = os.path.join(folder_name, f'{video_id}.txt')
-            if os.path.exists(transcript_file_path):
-                print(f"Transcript already exists for video {video_id}")
-                continue
+            
             try:
-                transcript = YouTubeTranscriptApi.get_transcript(video_id)
-                # Write transcript to a file
-                with open(f'{folder_name}/{video_id}.txt', 'w', encoding='utf-8') as file:
-                    for sentence in transcript:
-                        file.write(sentence['text'] + '\n')
-                print(f"Transcript saved for video {video_id}")
+                blob_path = f"{folder_name}/{video_id}.txt"
+                blob = bucket.blob(blob_path)
+                
+                if not blob.exists():
+                    transcript = YouTubeTranscriptApi.get_transcript(video_id)
+                    # Open the blob for writing as a text file
+                    with blob.open("w", encoding='utf-8') as f:
+                        for sentence in transcript:
+                            f.write(sentence['text'] + '\n')
+                    print(f"Uploaded transcript for video {video_id} to {bucket_name}/{blob_path}")
+                    
             except Exception as e:
-                print(f"Error fetching transcript for {url}: {e}")
+                print(f"Error fetching/uploading transcript for {url}: {e}")
+
+    def upload_dicts_to_gcs(self, bucket_name, folder_name, data_list):
+        """
+        Uploads a list of dictionaries as individual JSON files to GCS.
+
+        Args:
+            bucket_name (str): The name of the GCS bucket.
+            folder_name (str): The name of the folder within the bucket.
+            data_list (list): A list of dictionaries to upload.
+        """    
+    # Initialize the GCS client and get the bucket
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(bucket_name)
+        
+        # Iterate through each dictionary in the list
+        for data in data_list:
+            video_id = data.get('Video_id')
+            if not video_id:
+                print("Dictionary missing 'video_id'. Skipping...")
+                continue
+            
+            # Convert the dictionary to a JSON string
+            data_str = json.dumps(data)
+            
+            # Create a blob (file) in the specified folder, named after the video ID
+            blob_name = f"metadata/{video_id}.json"
+            blob = bucket.blob(f"{folder_name}/{video_id}.json")
+            
+            #check if the blob exists
+            if blob.exists():
+                print(f"File {blob_name} already exists in bucket {bucket_name}")
+            else:
+        # Upload the JSON string to the blob if it does not exist
+                blob.upload_from_string(data_str)
+                print(f"Uploaded {video_id}.json to {folder_name}/ in bucket {bucket_name}")
+     
 
 class TranscriptProcessor:
     def __init__(self, df):
@@ -175,20 +221,27 @@ def main():
     config = helper.load_config()
     youtube_api_key = config["YOUTUBE_API_KEY"]
     youtube_searcher = YouTubeSearcher(youtube_api_key)
+    bucket_name = "youtube-fpl_data"
+    meta_folder_name = "metadata"
+    transcript_folder_name = "transcripts"
 
-    video_urls = youtube_searcher.get_video_list_by_search(max_results=15)
-    df = youtube_searcher.get_video_metadata(video_urls)
+    video_urls = youtube_searcher.get_video_list_by_search(max_results=5)
 
-    youtube_searcher.save_youtube_transcripts(video_urls)
+    meta_data_list = youtube_searcher.get_video_metadata(video_urls)
+    youtube_searcher.upload_dicts_to_gcs(bucket_name, meta_folder_name, meta_data_list)
+    youtube_searcher.upload_transcript_to_gcs(video_urls, bucket_name, transcript_folder_name)
+    #youtube_searcher.upload_list_to_gcs( bucket_name, transcript_folder_name, transcript_list)
+
+
     # Initialize TranscriptProcessor instance with your DataFrame
-    transcript_processor = TranscriptProcessor(df)
+    #transcript_processor = TranscriptProcessor(df)
 
     # Call each method sequentially
-    transcript_processor.create_transcript_column('youtube_transcripts')
-    transcript_processor.clean_transcript_text()
-    transcript_processor.count_number_of_tokens()
-    transcript_processor.drop_columns_exceeding_token_length()
-    helper.save_df_to_csv(df)
+   # transcript_processor.create_transcript_column('youtube_transcripts')
+   #  transcript_processor.clean_transcript_text()
+#  transcript_processor.count_number_of_tokens()
+  #   transcript_processor.drop_columns_exceeding_token_length()
+   # helper.save_df_to_csv(df)
 
 if __name__ == '__main__':
     main()
