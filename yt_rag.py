@@ -13,7 +13,7 @@ config_path = "config.json"
 
 df = pd.read_csv(r"youtube_dataframe/output.csv")
 
-class Pinecone_API:
+class Pinecone:
     def __init__(self, api_key):
         self.pc = Pinecone(api_key=api_key)
 
@@ -33,6 +33,17 @@ class Pinecone_API:
         index = self.pc.Index(index_name)
         return index
 
+class OpenAI_Embedding:
+    def __init__(self, api_key):
+        self.open_ai_api_key = api_key
+        self.client = OpenAI()
+    
+    def get_embedding(self, text, model= "text-embedding-ada-002"):
+        text = text.replace("\n", " ")
+        return self.client.embeddings.create(input = [text], model=model).data[0].embedding
+
+
+
 
 def main():
     helper = Helper(config_path)
@@ -42,7 +53,7 @@ def main():
     pinecone_api = config["PINECONE_API_KEY"]
     openai_api = config["OPENAI_API_KEY"]
 
-    pinecone = Pinecone_API(pinecone_api)
+    pinecone = Pinecone(pinecone_api)
     pinecone.create_pinecone_index()
    
 
