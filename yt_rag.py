@@ -16,13 +16,14 @@ config_path = "config.json"
 
 class Pinecone:
     def __init__(self, api_key):
-        self.pc = Pinecone(api_key=api_key)
+        self.pinecone_api_key = api_key
+        self.index_name = 'fpl-rag'
 
     def create_pinecone_index(self):
-        index_name = 'fpl-rag'
-        # Now do stuff
-        if index_name not in self.pc.list_indexes().names():
-            self.pc.create_index(
+        pc = Pinecone(api_key = self.pinecone_api_key)
+        index_name = self.index_name
+        if index_name not in pc.list_indexes().names():
+            pc.create_index(
                 name=index_name,
                 dimension=1536,
                 metric='cosine',
@@ -31,7 +32,7 @@ class Pinecone:
                     region='us-west-2'
                 )
             )
-        index = self.pc.Index(index_name)
+        index = pc.Index(index_name)
         return index
 
 class OpenAI_Embedding:
@@ -45,12 +46,10 @@ class OpenAI_Embedding:
         storage_client = storage.Client()
         bucket = storage_client.bucket(self.bucket_name)
 
-        flattened_transcripts = []
-        for blob in bucket.list_blobs(prefix=self.folder_path):
-            if blob.name.endswith(".txt"):
-                with blob.open("r") as f:
-                    transcript = f.read().translate(str.maketrans('', '', string.punctuation))  
-                    flattened_transcripts.append(re.sub(r'\s+', ' ', transcript.strip()))
+        flattened_transcripts = [
+        re.sub(r'\s+', ' ', blob.download_as_text().translate(str.maketrans('', '', string.punctuation)).strip()) 
+        for blob in bucket.list_blobs(prefix=self.folder_path) 
+        if blob.name.endswith(".txt")]
 
         return flattened_transcripts
     
@@ -61,22 +60,22 @@ class OpenAI_Embedding:
                 input=[string],
                 model=model).data[0].embedding
             embeddings.append(response)
+        print("Embeddings created successfully")
         return embeddings
     
 
 def main():
     helper = Helper(config_path)
     config = helper.load_config()
-  #  pinecone_api = config["PINECONE_API_KEY"]
+    pinecone_api = config["PINECONE_API_KEY"]
     openai_api = config["OPENAI_API_KEY"]
 
-   # pinecone = Pinecone(pinecone_api)
+    pinecone = Pinecone(pinecone_api)
     openai_embedding = OpenAI_Embedding(openai_api)
-
     transcripts = openai_embedding.get_text_transcripts()
     sentence_embeddings = openai_embedding.get_embedding(transcripts)
 
-  #  pinecone.create_pinecone_index()
+    pinecone.create_pinecone_index()
    
 
 if __name__ == "__main__":
