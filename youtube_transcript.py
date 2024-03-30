@@ -1,4 +1,3 @@
-import os
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import pandas as pd
