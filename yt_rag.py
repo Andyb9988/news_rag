@@ -1,18 +1,18 @@
-import pandas as pd
 import os
-from openai import OpenAI
 import math
 import regex as re
 from pinecone import Pinecone, ServerlessSpec
 import numpy as np
 import openai 
+from openai import OpenAI
 import langchain
 import json
+import string
+import re
 from utils import Helper
 from google.cloud import storage
 config_path = "config.json"
 
-df = pd.read_csv(r"youtube_dataframe/output.csv")
 
 class Pinecone:
     def __init__(self, api_key):
@@ -38,28 +38,31 @@ class OpenAI_Embedding:
     def __init__(self, api_key):
         self.open_ai_api_key = api_key
         self.client = OpenAI()
-    
-    def get_embedding(self, bucket_name, folder_path, model= "text-embedding-ada-002"):
+        self.bucket_name = "youtube-fpl_data"
+        self.folder_path = "clean_transcripts"
+
+    def get_text_transcripts(self):
         storage_client = storage.Client()
-        bucket = storage_client.bucket(bucket_name)
+        bucket = storage_client.bucket(self.bucket_name)
 
-        embeddings = []
-
-        for blob in bucket.list_blobs(prefix=folder_path):
+        flattened_transcripts = []
+        for blob in bucket.list_blobs(prefix=self.folder_path):
             if blob.name.endswith(".txt"):
                 with blob.open("r") as f:
-                    transcript = f.read() 
-                text_values = [text for text in transcript]
+                    transcript = f.read().translate(str.maketrans('', '', string.punctuation))  
+                    flattened_transcripts.append(re.sub(r'\s+', ' ', transcript.strip()))
 
-                for text in text_values:
-                    response = self.client.embeddings.create(input = [text], model=model).data[0].embedding
-                    embeddings.append(response)
-                sentence_embeddings = np.array(embeddings)
-        print(sentence_embeddings.shape)        
-        return sentence_embeddings
-
-
-
+        return flattened_transcripts
+    
+    def get_embedding(self, transcript_list, model = "text-embedding-ada-002"):
+        embeddings = []
+        for string in transcript_list:
+            response = self.client.embeddings.create(
+                input=[string],
+                model=model).data[0].embedding
+            embeddings.append(response)
+        return embeddings
+    
 
 def main():
     helper = Helper(config_path)
@@ -70,9 +73,8 @@ def main():
    # pinecone = Pinecone(pinecone_api)
     openai_embedding = OpenAI_Embedding(openai_api)
 
-    bucket_name = "youtube-fpl_data"
-    folder_path = "clean_transcripts"
-    sentence_embeddings = openai_embedding.get_embedding(bucket_name, folder_path)
+    transcripts = openai_embedding.get_text_transcripts()
+    sentence_embeddings = openai_embedding.get_embedding(transcripts)
 
   #  pinecone.create_pinecone_index()
    
