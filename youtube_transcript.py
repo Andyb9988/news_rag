@@ -26,7 +26,6 @@ class YouTubeSearcher:
             list: A list of video URLs.
         """
         video_urls = []
-
         while True:
             query = str(input("What topic would you like summarised with Youtube videos: "))
 
@@ -40,15 +39,17 @@ class YouTubeSearcher:
                 maxResults=max_results
             )
             response = request.execute()
-            video_urls = [f'https://www.youtube.com/watch?v={item["id"]["videoId"]}' for item in response['items']]
+            new_video_urls = [f'https://www.youtube.com/watch?v={item["id"]["videoId"]}' for item in response['items']]
             
-            print(f"Number of items in the list: {len(video_urls)}")
+            video_urls.extend(new_video_urls)
+            print(f"Number of items in the list: {len(video_urls)}", video_urls)
+            
 
             if len(video_urls) >= 5:
                 print("Max video limit (5) reached")
                 break
 
-        return video_urls[:max_results]
+        return video_urls
 
 
     def get_video_metadata(self, video_urls: List[str]) -> List[Dict]:
@@ -109,7 +110,7 @@ class YouTubeSearcher:
             video_id = url.split('v=')[-1].split('&')[0]
             
             try:
-                blob_path = f"{folder_name}/{video_id}.txt"
+                blob_path = f"{folder_name}/{video_id}"
                 blob = bucket.blob(blob_path)
                 
                 if not blob.exists():
@@ -205,7 +206,7 @@ class TranscriptProcessor:
             clean_transcript = row['clean_transcript']
             
             # Create a blob name using the video_id
-            blob_name = f'{folder_name}/{video_id}'
+            blob_name = f'{folder_name}/{video_id}.txt'
             
             # Create a new blob and upload the transcript content
             blob = bucket.blob(blob_name)
