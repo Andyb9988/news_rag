@@ -1,7 +1,7 @@
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import pandas as pd
-from typing import List, Dict
+from typing import List, Dict, Union, Tuple
 from youtube_transcript_api import YouTubeTranscriptApi
 import json
 import tiktoken
@@ -10,6 +10,18 @@ from google.cloud import storage
 import json
 from io import BytesIO
 config_path = "config.json"
+
+import regex as re
+from pinecone import ServerlessSpec, PodSpec
+from pinecone import Pinecone as Pinecone_Client
+from openai import OpenAI
+import langchain
+import json
+import string
+from utils import Helper
+from langchain_community.document_loaders import GCSFileLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+import time
 
 class YouTubeSearcher:
     def __init__(self, api_key):
@@ -227,11 +239,84 @@ def lambda_clean_transcript_text(text: str) -> str:
     text = text.replace("[Music]", "").replace("\n", " ").replace("[Applause]", "")
     return text
 
+class Pinecone:
+    def __init__(self, api_key: str):
+        self.pc = Pinecone_Client(api_key = api_key)
+        self.index_name = 'youtube-transcripts'
+
+    
+    def upsert_data(self, data_file: Union[Dict, List[Dict]]) -> None:
+        print(f"After adding the new documents {self.index.describe_index_stats()}")
+        self.index.upsert(data_file)
+
+class PrepareTextForVDB:
+    def __init__(self):
+        self.folder_path = "clean_transcripts"
+        self.bucket_name = "youtube-fpl_data"
+        self.project_name = "youtube-to-gpt"
+        self.client = OpenAI()
+    
+
+    def list_blobs_in_folder(self) -> List[storage.Blob]:
+        """Lists all the blobs in the specified GCS folder."""
+        storage_client = storage.Client()
+        bucket = storage_client.get_bucket(self.bucket_name)
+        
+        blobs = bucket.list_blobs(prefix=self.folder_path) 
+        print("All blobs are loaded")   
+        return list(blobs)
+
+    def load_blobs(self, blobs: List[storage.Blob]) -> List:
+        documents = []
+        for blob in blobs:
+            try:
+                loader = GCSFileLoader(project_name=self.project_name, bucket=self.bucket_name, blob=blob.name)
+                loaded_docs = loader.load()
+                documents.extend(loaded_docs)
+                print("Docs created")
+            except PermissionError as e:
+                print(f"Permission denied for blob {blob.name}. Skipping download.")
+                print(f"Error details: {str(e)}")
+        return documents
+
+    def split_documents(self, documents, chunk_size: int = 1000, chunk_overlap: int = 200) -> List:
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            length_function=len,
+            is_separator_regex=False,
+        )
+        split_docs = text_splitter.split_documents(documents)
+        print("Docs Split")
+        return split_docs
+
+    def create_embedding_list(self, split_docs: List) -> List[List[float]]:
+        embed_list = [self.client.embeddings.create(input=[i.page_content], model="text-embedding-3-small").data[0].embedding for i in split_docs]
+        return embed_list
+    
+    def create_metatdata_list(self, split_docs: List) -> List[dict]:
+        meta_list = [{"video_id": i.metadata["source"], "text": i.page_content} for i in split_docs]
+        return meta_list
+    
+    def create_ids(self, split_docs: List) -> List[str]:
+        ids = [str(i) for i in range(0, len(split_docs))]
+        return ids
+    
+    def create_zip_file(self, split_docs: List) -> List[Tuple[str, List[float], dict]]:
+        ids = self.create_ids(split_docs)
+        embed_list = self.create_embedding_list(split_docs)
+        meta_list = self.create_metatdata_list(split_docs)
+        print("created zip file")
+        return zip(ids, embed_list, meta_list)
+
+
 def main():
     # Example usage
     helper = Helper(config_path)
     config = helper.load_config()
     youtube_api_key = config["YOUTUBE_API_KEY"]
+    pinecone_api = config["PINECONE_API_KEY"]
+    openai_api = config["OPENAI_API_KEY"]
     youtube_searcher = YouTubeSearcher(youtube_api_key)
     meta_folder_name = "metadata"
     transcript_folder_name = "transcripts"
@@ -253,6 +338,17 @@ def main():
     df = transcript_processor.filter_rows_by_token_length(df)
     transcript_processor.upload_clean_transcript(df)
 
+    #Create Pinecone Index
+    pinecone = Pinecone(pinecone_api)
+    index = pinecone.create_pinecone_index()
+    #Prepare text for upsert
+    prep_text_for_rag = PrepareTextForVDB()
+    blob_list = prep_text_for_rag.list_blobs_in_folder()
+    blob_docs = prep_text_for_rag.load_blobs(blob_list)
+    split_documents = prep_text_for_rag.split_documents(blob_docs)
+    zip_file = prep_text_for_rag.create_zip_file(split_documents)
+    #Upsert transcript
+    pinecone.upsert_data(zip_file)
 
 if __name__ == '__main__':
     main()
