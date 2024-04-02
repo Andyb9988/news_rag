@@ -1,7 +1,7 @@
 import regex as re
 from pinecone import ServerlessSpec, PodSpec
 from pinecone import Pinecone as Pinecone_Client
-import openai 
+import openai
 from openai import OpenAI
 import langchain
 import json
@@ -12,24 +12,30 @@ from google.cloud import storage
 from langchain_community.document_loaders import GCSFileLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_pinecone import PineconeVectorStore  
+from langchain_pinecone import PineconeVectorStore
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough, RunnableLambda
 import time
+from langchain.prompts import (
+    PromptTemplate,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+    ChatPromptTemplate,
+)
+from langchain.retrievers.multi_query import MultiQueryRetriever
+from youtube_transcript import Pinecone
 
 config_path = "config.json"
 
-
-class Pinecone:
-    def __init__(self, api_key):
+class YoutubeSearchAssistant:
+    def __init__(self, api_key: str):
         self.pc = Pinecone_Client(api_key = api_key)
         self.index_name = 'youtube-transcripts'
 
     def create_pinecone_index(self):
         use_serverless = True
-        index_name = self.index_name
-        if index_name in self.pc.list_indexes().names():
+        if self.index_name in self.pc.list_indexes().names():
             self.index = self.pc.Index(self.index_name)
 
         else:
@@ -41,148 +47,114 @@ class Pinecone:
                 spec = PodSpec()
             
             self.pc.create_index(
-                index_name,
+                self.index_name,
                 dimension=1536,  # dimensionality of text-embedding-ada-002
                 metric='cosine',
                 spec=spec
             )
-            while not self.pc.describe_index(index_name).status['ready']:
+            while not self.pc.describe_index(self.index_name).status['ready']:
                 time.sleep(1)
             self.index = self.pc.Index(self.index_name)
         
         print(self.index.describe_index_stats())
         return self.index
     
-    def upsert_data(self, data_file):
-        self.index.upsert(data_file)
+    def langchain_embeddings(self, model_name='text-embedding-3-small'):
+        embeddings = OpenAIEmbeddings(
+            model=model_name,
+            dimensions=1536)
+        return embeddings
 
-class PrepareTextForRag:
-    def __init__(self):
-        self.folder_path = "clean_transcripts"
-        self.bucket_name = "youtube-fpl_data"
-        self.project_name = "youtube-to-gpt"
-        self.client = OpenAI()
-    
+    def langchain_vectorstore(self, index, embeddings):
+        vectorstore = PineconeVectorStore(index, embeddings)
+        return vectorstore
 
-    def list_blobs_in_folder(self):
-        """Lists all the blobs in the specified GCS folder."""
-        storage_client = storage.Client()
-        bucket = storage_client.get_bucket(self.bucket_name)
-        
-        blobs = bucket.list_blobs(prefix=self.folder_path) 
-        print("All blobs are loaded")   
-        return list(blobs)
+    def langchain_retriever(self, vectorstore):
+        retriever = vectorstore.as_retriever()
+        return retriever
 
-    def load_blobs(self, blobs):
-        documents = []
-        for blob in blobs:
-            try:
-                loader = GCSFileLoader(project_name=self.project_name, bucket=self.bucket_name, blob=blob.name)
-                loaded_docs = loader.load()
-                documents.extend(loaded_docs)
-                print("Docs created")
-            except PermissionError as e:
-                print(f"Permission denied for blob {blob.name}. Skipping download.")
-                print(f"Error details: {str(e)}")
-        return documents
-
-    def split_documents(self, documents, chunk_size=500, chunk_overlap=100):
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            length_function=len,
-            is_separator_regex=False,
+    def multi_query_retriever(self, vectorstore, llm):
+        vectorstore_retriever = vectorstore.as_retriever(k=10)
+        retriever = MultiQueryRetriever.from_llm(
+            retriever=vectorstore_retriever, llm=llm
         )
-        split_docs = text_splitter.split_documents(documents)
-        print("Docs Split")
-        return split_docs
+        return retriever
 
-    def create_embedding_list(self, split_docs):
-        embed_list = [self.client.embeddings.create(input=[i.page_content], model="text-embedding-3-small").data[0].embedding for i in split_docs]
-        return embed_list
-    
-    def create_metatdata_list(self, split_docs):
-        meta_list = [{"video_id": i.metadata["source"], "text": i.page_content} for i in split_docs]
-        return meta_list
-    
-    def create_ids(self, split_docs):
-        ids = [str(i) for i in range(0, len(split_docs))]
-        return ids
-    
-    def create_zip_file(self, split_docs):
-        ids = self.create_ids(split_docs)
-        embed_list = self.create_embedding_list(split_docs)
-        meta_list = self.create_metatdata_list(split_docs)
-        return zip(ids, embed_list, meta_list)
-        
+    def prompt_system_human_prompt(self):
+        review_system_template_str = """
+        You are a highly efficient virtual assistant 
+        designed to answers user queries 
+        through extract valuable information 
+        from video transcripts, using the context provided. 
+        Your primary goal is to provide insightful and concise summaries of the content within the transcripts. 
+        You excel in identifying key topics, extracting relevant details, and presenting the information in a clear and coherent manner. 
+        Your users rely on you to distill complex video content into easily understandable insights. 
+        Keep in mind the importance of accuracy, clarity, and brevity in your responses.
+        If the question cannot be answered using the information provided say "I don't know".
+                
+        context:
+        {context}
+        """
 
-def langchain_embeddings(model_name = 'text-embedding-3-small'):
-    embeddings = OpenAIEmbeddings(  
-        model=model_name,  
-        dimensions = 1536)  
-    return embeddings
+        review_system_prompt = SystemMessagePromptTemplate(
+            prompt=PromptTemplate(
+                input_variables=["context"], template=review_system_template_str
+            )
+        )
 
-def langchain_vectorstore(index, embeddings):
-    vectorstore = PineconeVectorStore(index, embeddings)  
-    return vectorstore
+        review_human_prompt = HumanMessagePromptTemplate(
+            prompt=PromptTemplate(
+                input_variables=["question"], template="{question}"
+            )
+        )
 
-def langchain_retriever(vectorstore):
-    retriever = vectorstore.as_retriever()
-    return retriever
+        messages = [review_system_prompt, review_human_prompt]
+        review_prompt_template = ChatPromptTemplate(
+            input_variables=["context", "question"],
+            messages=messages,)
 
-def langchain_prompt():
-    template = """Answer the question based only on the following context:
-    {context}
-    Question: {question}"""
-    prompt = ChatPromptTemplate.from_template(template)
-    return prompt
+        return review_prompt_template
 
-def langchain_model():
-    # LLM
-    model = ChatOpenAI(temperature=0.2, model = "gpt-3.5-turbo-0125")
-    return model
+    def langchain_model(self):
+        model = ChatOpenAI(temperature=0.2, model="gpt-3.5-turbo-0125")
+        return model
 
-def langchain_chain(retriever, prompt, model):
-    chain = (
-     RunnableParallel({"context": retriever, "question": RunnablePassthrough()})
-    | prompt
-    | model
-    | StrOutputParser())
-    return chain
+    def langchain_chain(self, retriever, prompt, model):
+        chain = (
+            RunnableParallel({"context": retriever, "question": RunnablePassthrough()})
+            | prompt
+            | model
+            | StrOutputParser())
+        return chain
 
-def langchain_invoke(chain):
-    query = str(input("What do you want to search on Youtube?"))
-    try:
-        result = chain.invoke(query)
-        print(result)
-    except Exception as e:
-        print(f"Error: {str(e)}")
+    def langchain_invoke(self, chain):
+        query = str(input("What do you want to search on Youtube?"))
+        try:
+            result = chain.invoke(query)
+            print(result)
+        except Exception as e:
+            print(f"Error: {str(e)}")
 
 def main():
     helper = Helper(config_path)
     config = helper.load_config()
     pinecone_api = config["PINECONE_API_KEY"]
     openai_api = config["OPENAI_API_KEY"]
-    #Create Pinecone Index
-    pinecone = Pinecone(pinecone_api)
-    index = pinecone.create_pinecone_index()
-    #Prepare text for upsert
-    prep_text_for_rag = PrepareTextForRag()
-    blob_list = prep_text_for_rag.list_blobs_in_folder()
-    blob_docs = prep_text_for_rag.load_blobs(blob_list)
-    split_documents = prep_text_for_rag.split_documents(blob_docs)
-    zip_file = prep_text_for_rag.create_zip_file(split_documents)
-    #Upsert transcript
-    pinecone.upsert_data(zip_file)
+    yt_search = YoutubeSearchAssistant(pinecone_api)
+
+    #Pinecone 
+    index = yt_search.create_pinecone_index()
 
     #Langchain Chain
-    embeddings = langchain_embeddings()
-    vectorstore = langchain_vectorstore(index, embeddings)
-    retriever = langchain_retriever(vectorstore)
-    prompt = langchain_prompt()
-    model = langchain_model()
-    chain = langchain_chain(retriever, prompt, model)
-    invoke = langchain_invoke(chain)
+    embeddings = yt_search.langchain_embeddings()
+    vectorstore = yt_search.langchain_vectorstore(index, embeddings)
+    model = yt_search.langchain_model()
+
+    retriever = yt_search.multi_query_retriever(vectorstore,model)
+    prompt = yt_search.prompt_system_human_prompt()
+
+    chain = yt_search.langchain_chain(retriever, prompt, model)
+    yt_search.langchain_invoke(chain)
 
 if __name__ == "__main__":
     main()
