@@ -7,7 +7,7 @@ import langchain
 import json
 import string
 import re
-from utils import Helper
+from utils.helper import Helper
 from google.cloud import storage
 from langchain_community.document_loaders import GCSFileLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -24,7 +24,7 @@ from langchain.prompts import (
     ChatPromptTemplate,
 )
 from langchain.retrievers.multi_query import MultiQueryRetriever
-from youtube_transcript import Pinecone
+from utils.youtube_transcript import Pinecone
 
 config_path = "config.json"
 
