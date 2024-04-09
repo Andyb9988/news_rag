@@ -5,7 +5,7 @@ from typing import List, Dict, Union, Tuple
 from youtube_transcript_api import YouTubeTranscriptApi
 import json
 import tiktoken
-from utils import Helper
+from utils.helper import Helper
 from google.cloud import storage
 import json
 from io import BytesIO
@@ -18,7 +18,6 @@ from openai import OpenAI
 import langchain
 import json
 import string
-from utils import Helper
 from langchain_community.document_loaders import GCSFileLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import time
@@ -244,6 +243,31 @@ class Pinecone:
         self.pc = Pinecone_Client(api_key = api_key)
         self.index_name = 'youtube-transcripts'
 
+    def create_pinecone_index(self):
+        use_serverless = True
+        if self.index_name in self.pc.list_indexes().names():
+            self.index = self.pc.Index(self.index_name)
+
+        else:
+        # create a new index
+            if use_serverless:
+                spec = ServerlessSpec(cloud='aws', region='us-west-2')
+            else:
+                # if not using a starter index, you should specify a pod_type too
+                spec = PodSpec()
+               
+            self.pc.create_index(
+                    self.index_name,
+                    dimension=1536,  # dimensionality of text-embedding-ada-002
+                    metric='cosine',
+                    spec=spec
+                )
+            while not self.pc.describe_index(self.index_name).status['ready']:
+                    time.sleep(1)
+            self.index = self.pc.Index(self.index_name)
+            
+        print(self.index.describe_index_stats())
+        return self.index
     
     def upsert_data(self, data_file: Union[Dict, List[Dict]]) -> None:
         print(f"After adding the new documents {self.index.describe_index_stats()}")
