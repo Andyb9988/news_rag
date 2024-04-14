@@ -25,10 +25,11 @@ from langchain.prompts import (
 )
 from langchain.retrievers.multi_query import MultiQueryRetriever
 from utils.youtube_transcript import Pinecone
+import streamlit as st
 
 config_path = "config.json"
 
-class YoutubeSearchAssistant:
+class PineconeAssistant:
     def __init__(self, api_key: str):
         self.pc = Pinecone_Client(api_key = api_key)
         self.index_name = 'youtube-transcripts'
@@ -58,7 +59,11 @@ class YoutubeSearchAssistant:
         
         print(self.index.describe_index_stats())
         return self.index
-    
+
+class YoutubeSearchAssistant:
+    def __init__(self):
+        self.index_name = 'youtube-transcripts'
+
     def langchain_embeddings(self, model_name='text-embedding-3-small'):
         embeddings = OpenAIEmbeddings(
             model=model_name,
@@ -134,16 +139,25 @@ class YoutubeSearchAssistant:
             print(result)
         except Exception as e:
             print(f"Error: {str(e)}")
+    
+    def langchain_streamlit_invoke(self, prompt, chain):
+        query = prompt
+        try:
+            result = chain.invoke(query)
+            st.markdown(result)
+        except Exception as e:
+            st.write(f"Error: {str(e)}")
 
 def main():
     helper = Helper(config_path)
     config = helper.load_config()
     pinecone_api = config["PINECONE_API_KEY"]
     openai_api = config["OPENAI_API_KEY"]
-    yt_search = YoutubeSearchAssistant(pinecone_api)
+    pinecone_assistant = PineconeAssistant(pinecone_api)
+    yt_search = YoutubeSearchAssistant()
 
     #Pinecone 
-    index = yt_search.create_pinecone_index()
+    index = pinecone_assistant.create_pinecone_index()
 
     #Langchain Chain
     embeddings = yt_search.langchain_embeddings()

@@ -31,14 +31,14 @@ class YouTubeSearcher:
         """Searches for videos on YouTube using the Youtube Data API.
 
         Args:
-            max_results (int, optional): The maximum number of results to return. Defaults to 15.
+            max_results (int, optional): The maximum number of results to return per search. Defaults to 5.
 
         Returns:
             list: A list of video URLs.
         """
         video_urls = []
         while True:
-            query = str(input("What topic would you like summarised with Youtube videos: "))
+            query = str(input("What topic would you like summarised with Youtube videos (type 'done' to finish): "))
 
             if query.lower() == 'done':
                 break
@@ -50,18 +50,17 @@ class YouTubeSearcher:
                 maxResults=max_results
             )
             response = request.execute()
+
             new_video_urls = [f'https://www.youtube.com/watch?v={item["id"]["videoId"]}' for item in response['items']]
             
             video_urls.extend(new_video_urls)
             print(f"Number of items in the list: {len(video_urls)}", video_urls)
             
-
-            if len(video_urls) >= 5:
-                print("Max video limit (5) reached")
+            if len(video_urls) >= 60:
+                print("Max video limit (60) reached")
                 break
 
         return video_urls
-
 
     def get_video_metadata(self, video_urls: List[str]) -> List[Dict]:
         """
