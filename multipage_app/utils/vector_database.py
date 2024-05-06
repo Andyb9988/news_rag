@@ -1,7 +1,8 @@
 import pandas as pd
 from typing import List, Dict, Union, Tuple
 import json
-from utils.helper import Helper
+#from utils.helper import Helper
+from helper import Helper
 from google.cloud import storage
 import json
 from io import BytesIO
@@ -19,11 +20,24 @@ import time
 import logging
 
 class Pinecone:
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, index_name: str):
+        """
+        Initializes the Pinecone client with the specified API key and index name.
+        
+        Args:
+            api_key (str): The API key for Pinecone.
+            index_name (str): The name of the Pinecone index to be used.
+        """
         self.pc = Pinecone_Client(api_key = api_key)
-        self.index_name = 'youtube-transcripts'
+        self.index_name = index_name
 
-    def create_pinecone_index(self):
+    def pinecone_index(self):
+        """
+        Configures the Pinecone index based on the instance's index name. Creates the index if it does not exist.
+        
+        Returns:
+            Pinecone Index object.
+        """
         use_serverless = True
         if self.index_name in self.pc.list_indexes().names():
             self.index = self.pc.Index(self.index_name)
@@ -46,17 +60,29 @@ class Pinecone:
                     time.sleep(1)
             self.index = self.pc.Index(self.index_name)
             
-        logging.info(self.index.describe_index_stats())
+        logging.info(f"Index {self.index_name} stats: {self.index.describe_index_stats()}")
         return self.index
     
     def upsert_data(self, data_file: Union[Dict, List[Dict]]) -> None:
-        logging.info(f"After adding the new documents {self.index.describe_index_stats()}")
+        """
+        Upserts data into the configured Pinecone index.
+        
+        Args:
+            data_file (Union[Dict, List[Dict]]): The data to upsert into the index.
+        """
         self.index.upsert(data_file)
+        logging.info(f"After adding the new documents {self.index.describe_index_stats()}")
 
 class PrepareTextForVDB:
-    def __init__(self):
-        self.folder_path = "clean_transcripts"
-        self.bucket_name = "youtube-fpl_data"
+    def __init__(self, folder_name: str):
+        """
+        Initializes the class with a specific folder within the GCS bucket from which to load data.
+        
+        Args:
+            folder_name (str): The name of the folder within the GCS bucket.
+        """
+        self.folder_path = f"{folder_name}/{folder_name}_clean_transcripts"
+        self.bucket_name = "youtube-transcript-data"
         self.project_name = "youtube-to-gpt"
         self.client = OpenAI()
     
@@ -118,12 +144,12 @@ def main():
     config = helper.load_config()
     pinecone_api = config["PINECONE_API_KEY"]
     openai_api = config["OPENAI_API_KEY"]
-
+    folder_name = "golf"
         #Create Pinecone Index
-    pinecone = Pinecone(pinecone_api)
-    index = pinecone.create_pinecone_index()
+    pinecone = Pinecone(pinecone_api, index_name=folder_name)
+    index = pinecone.pinecone_index()
     #Prepare text for upsert
-    prep_text_for_rag = PrepareTextForVDB()
+    prep_text_for_rag = PrepareTextForVDB(folder_name=folder_name)
     blob_list = prep_text_for_rag.list_blobs_in_folder()
     blob_docs = prep_text_for_rag.load_blobs(blob_list)
     split_documents = prep_text_for_rag.split_documents(blob_docs)
