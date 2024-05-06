@@ -4,7 +4,8 @@ import pandas as pd
 from typing import List, Dict, Union, Tuple
 from youtube_transcript_api import YouTubeTranscriptApi
 import json
-from utils.helper import Helper
+#from utils.helper import Helper
+from helper import Helper
 from google.cloud import storage
 import json
 from io import BytesIO
@@ -14,9 +15,9 @@ config_path = "utils/config.json"
 class YouTubeSearcher:
     def __init__(self, api_key):
         self.youtube = build('youtube', 'v3', developerKey=api_key)
-        self.bucket_name = "youtube-fpl_data"
+        self.bucket_name = "youtube-transcript-data"
     
-    def get_video_list_by_search(self, max_results: int = 5) -> List[str]:
+    def get_video_list_by_search(self, max_results: int = 2) -> List[str]:
         """Searches for videos on YouTube using the Youtube Data API.
 
         Args:
@@ -115,7 +116,7 @@ class YouTubeSearcher:
             video_id = url.split('v=')[-1].split('&')[0]
             
             try:
-                blob_path = f"{folder_name}/{video_id}"
+                blob_path = f"{folder_name}/{folder_name}_transcripts/{video_id}.txt"
                 blob = bucket.blob(blob_path)
                 
                 # if the blob does not already exist, get transcript.
@@ -153,33 +154,49 @@ class YouTubeSearcher:
             # Convert the dictionary to a JSON string
             data_str = json.dumps(data)
             
-            # Create a blob (file) in the specified folder, named after the video ID
-            blob_name = f"metadata/{video_id}.json"
-            blob = bucket.blob(f"{folder_name}/{video_id}.json")
-            
-            #check if the blob exists
-            if blob.exists():
-                logging.info(f"File {blob_name} already exists in bucket {self.bucket_name}")
-            else:
-            # Upload the JSON string to the blob if it does not exist
-                blob.upload_from_string(data_str)
-                logging.info(f"Uploaded {video_id}.json to {folder_name}/ in bucket {self.bucket_name}")
-   
+            try:
+                blob_path = f"{folder_name}/{folder_name}_metadata/{video_id}.json"
+                blob = bucket.blob(blob_path)
+                
+                #check if the blob exists
+                if blob.exists():
+                    logging.info(f"File {blob} already exists in bucket {self.bucket_name}")
+                else:
+                # Upload the JSON string to the blob if it does not exist
+                    blob.upload_from_string(data_str)
+                    logging.info(f"Uploaded {video_id}.json to {folder_name}/ in bucket {self.bucket_name}")
+
+            except Exception as e:
+                logging.error(f"Error fetching/uploading metadat for {video_id}: {e}")
+
+
+    def proccess_videos_to_gcs(self):
+        folder_name = "golf"
+            # Search for the youtube URL's
+        video_urls = self.get_video_list_by_search(max_results=2)
+
+        # Gets video metadata and uploads metadata and transcript to a gcs bucket
+        meta_data_list = self.get_video_metadata(video_urls)
+        self.upload_dicts_to_gcs(folder_name, meta_data_list)
+        self.upload_transcript_to_gcs(video_urls, folder_name)
+
 def main():
     # Example usage
     helper = Helper(config_path)
     config = helper.load_config()
     youtube_api_key = config["YOUTUBE_API_KEY"]
     youtube_searcher = YouTubeSearcher(youtube_api_key)
-    meta_folder_name = "metadata"
-    transcript_folder_name = "transcripts"
-    # Search for the youtube URL's
-    video_urls = youtube_searcher.get_video_list_by_search(max_results=5)
+    youtube_searcher.proccess_videos_to_gcs()
+
+
+    #folder_name = "golf"
+        # Search for the youtube URL's
+    #video_urls = youtube_searcher.get_video_list_by_search(max_results=2)
 
     # Gets video metadata and uploads metadata and transcript to a gcs bucket
-    meta_data_list = youtube_searcher.get_video_metadata(video_urls)
-    youtube_searcher.upload_dicts_to_gcs(meta_folder_name, meta_data_list)
-    youtube_searcher.upload_transcript_to_gcs(video_urls, transcript_folder_name)
+    #meta_data_list = youtube_searcher.get_video_metadata(video_urls)
+    #youtube_searcher.upload_dicts_to_gcs(folder_name, meta_data_list)
+    #youtube_searcher.upload_transcript_to_gcs(video_urls, folder_name)
 
 if __name__ == '__main__':
     main()

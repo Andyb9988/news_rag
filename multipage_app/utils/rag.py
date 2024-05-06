@@ -27,37 +27,6 @@ import logging
 
 config_path = "config.json"
 
-class PineconeAssistant:
-    def __init__(self, api_key: str):
-        self.pc = Pinecone_Client(api_key = api_key)
-        self.index_name = 'youtube-transcripts'
-
-    def create_pinecone_index(self):
-        use_serverless = True
-        if self.index_name in self.pc.list_indexes().names():
-            self.index = self.pc.Index(self.index_name)
-
-        else:
-    # create a new index
-            if use_serverless:
-                spec = ServerlessSpec(cloud='aws', region='us-west-2')
-            else:
-                # if not using a starter index, you should specify a pod_type too
-                spec = PodSpec()
-            
-            self.pc.create_index(
-                self.index_name,
-                dimension=1536,  # dimensionality of text-embedding-ada-002
-                metric='cosine',
-                spec=spec
-            )
-            while not self.pc.describe_index(self.index_name).status['ready']:
-                time.sleep(1)
-            self.index = self.pc.Index(self.index_name)
-        
-        logging.info(self.index.describe_index_stats())
-        return self.index
-
 class YoutubeSearchAssistant:
     def __init__(self):
         self.index_name = 'youtube-transcripts'
