@@ -5,19 +5,21 @@ from typing import List, Dict, Union, Tuple
 from youtube_transcript_api import YouTubeTranscriptApi
 import json
 #from utils.helper import Helper
-from helper import Helper
+from utils.helper import Helper
 from google.cloud import storage
 import json
 from io import BytesIO
 import logging
 config_path = "utils/config.json"
+import logging
+logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
 
 class YouTubeSearcher:
     def __init__(self, api_key):
         self.youtube = build('youtube', 'v3', developerKey=api_key)
         self.bucket_name = "youtube-transcript-data"
     
-    def get_video_list_by_search(self, max_results: int = 2) -> List[str]:
+    def get_video_list_by_search(self, user_query: str, max_results: int = 2) -> List[str]:
         """Searches for videos on YouTube using the Youtube Data API.
 
         Args:
@@ -28,7 +30,8 @@ class YouTubeSearcher:
         """
         video_urls = []
         while True:
-            query = str(input("What topic would you like summarised with Youtube videos (type 'done' to finish): "))
+            query = user_query
+            #str(input("What topic would you like summarised with Youtube videos (type 'done' to finish): "))
 
             if query.lower() == 'done':
                 break
@@ -89,6 +92,7 @@ class YouTubeSearcher:
                         "Video_id": video_id
                     }
                     metadata_list.append(metadata)
+                    logging.info("metadata added to a list successfully")
                 else:
                     logging.warning(f'No video found with ID {video_id}')
             
@@ -148,7 +152,7 @@ class YouTubeSearcher:
         for data in data_list:
             video_id = data.get('Video_id')
             if not video_id:
-                logging.info("Dictionary missing 'video_id'. Skipping...")
+                logging.info(f"Dictionary missing {video_id}. Skipping...")
                 continue
             
             # Convert the dictionary to a JSON string
@@ -170,33 +174,12 @@ class YouTubeSearcher:
                 logging.error(f"Error fetching/uploading metadat for {video_id}: {e}")
 
 
-    def proccess_videos_to_gcs(self):
-        folder_name = "golf"
+    def proccess_videos_to_gcs(self, folder_name, user_query):
+        #folder_name = "golf"
             # Search for the youtube URL's
-        video_urls = self.get_video_list_by_search(max_results=2)
+        video_urls = self.get_video_list_by_search(user_query, max_results=2)
 
         # Gets video metadata and uploads metadata and transcript to a gcs bucket
         meta_data_list = self.get_video_metadata(video_urls)
         self.upload_dicts_to_gcs(folder_name, meta_data_list)
         self.upload_transcript_to_gcs(video_urls, folder_name)
-
-def main():
-    # Example usage
-    helper = Helper(config_path)
-    config = helper.load_config()
-    youtube_api_key = config["YOUTUBE_API_KEY"]
-    youtube_searcher = YouTubeSearcher(youtube_api_key)
-    youtube_searcher.proccess_videos_to_gcs()
-
-
-    #folder_name = "golf"
-        # Search for the youtube URL's
-    #video_urls = youtube_searcher.get_video_list_by_search(max_results=2)
-
-    # Gets video metadata and uploads metadata and transcript to a gcs bucket
-    #meta_data_list = youtube_searcher.get_video_metadata(video_urls)
-    #youtube_searcher.upload_dicts_to_gcs(folder_name, meta_data_list)
-    #youtube_searcher.upload_transcript_to_gcs(video_urls, folder_name)
-
-if __name__ == '__main__':
-    main()

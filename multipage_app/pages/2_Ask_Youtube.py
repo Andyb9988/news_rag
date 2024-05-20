@@ -1,19 +1,20 @@
 import streamlit as st
 from streamlit_message import message
-from utils.rag import YoutubeSearchAssistant, PineconeAssistant
+from utils.rag import YoutubeSearchAssistant
 from utils.helper import Helper
-config_path = "utils/config.json"
+from utils.vector_database import PineconeHelper
+config_path = "multipage_app/utils/config.json"
 helper = Helper(config_path)
 config = helper.load_config()
 pinecone_api = config["PINECONE_API_KEY"]
 openai_api = config["OPENAI_API_KEY"]
 
 yt_search = YoutubeSearchAssistant()
-pc = PineconeAssistant(pinecone_api)
+pc = PineconeHelper(pinecone_api, index_name='golf')
 
 def langchain():
     #Pinecone 
-    index = pc.create_pinecone_index()
+    index = pc.pinecone_index()
     embeddings = yt_search.langchain_embeddings()
     vectorstore = yt_search.langchain_vectorstore(index, embeddings)
     model = yt_search.langchain_model()

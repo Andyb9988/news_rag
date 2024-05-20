@@ -2,7 +2,7 @@ import pandas as pd
 from typing import List, Dict, Union, Tuple
 import json
 #from utils.helper import Helper
-from helper import Helper
+from utils.helper import Helper
 from google.cloud import storage
 import json
 from io import BytesIO
@@ -18,8 +18,9 @@ from langchain_community.document_loaders import GCSFileLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import time
 import logging
+logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
 
-class Pinecone:
+class PineconeHelper:
     def __init__(self, api_key: str, index_name: str):
         """
         Initializes the Pinecone client with the specified API key and index name.
@@ -70,8 +71,9 @@ class Pinecone:
         Args:
             data_file (Union[Dict, List[Dict]]): The data to upsert into the index.
         """
+        
         self.index.upsert(data_file)
-        logging.info(f"After adding the new documents {self.index.describe_index_stats()}")
+        logging.info(f"upserted datafiles correctly.")
 
 class PrepareTextForVDB:
     def __init__(self, folder_name: str):
@@ -138,24 +140,3 @@ class PrepareTextForVDB:
         meta_list = self._create_metatdata_list(split_docs)
         logging.info("Zip file create with ID, embeddings and metadata.")
         return zip(ids, embed_list, meta_list)
-    
-def main():
-    helper = Helper(config_path)
-    config = helper.load_config()
-    pinecone_api = config["PINECONE_API_KEY"]
-    openai_api = config["OPENAI_API_KEY"]
-    folder_name = "golf"
-        #Create Pinecone Index
-    pinecone = Pinecone(pinecone_api, index_name=folder_name)
-    index = pinecone.pinecone_index()
-    #Prepare text for upsert
-    prep_text_for_rag = PrepareTextForVDB(folder_name=folder_name)
-    blob_list = prep_text_for_rag.list_blobs_in_folder()
-    blob_docs = prep_text_for_rag.load_blobs(blob_list)
-    split_documents = prep_text_for_rag.split_documents(blob_docs)
-    zip_file = prep_text_for_rag.create_zip_file(split_documents)
-    #Upsert transcript
-    pinecone.upsert_data(zip_file)
-
-if __name__ == '__main__':
-    main()

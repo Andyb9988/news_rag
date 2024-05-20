@@ -2,6 +2,8 @@ import pandas as pd
 import logging
 from google.cloud import storage
 import tiktoken
+import logging
+logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
 
 class TranscriptProcessor:
     def __init__(self, folder_name = "other"):
@@ -21,6 +23,7 @@ class TranscriptProcessor:
         blobs = bucket.list_blobs(prefix=f'{self.folder_name}/{self.folder_name}_transcripts/')
         rows = [{'video_id': blob.name.split('/')[-1], 'transcripts': blob.download_as_bytes().decode('utf-8')} for blob in blobs]
         df = pd.DataFrame(rows)
+        logging.info("Transcript read to a pandas dataframe.")
         return df
 
     def clean_transcript_text(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -35,6 +38,7 @@ class TranscriptProcessor:
         """
         df["clean_transcript"] = df["transcripts"].apply(self._lambda_clean_transcript_text)
         df.drop(columns=["transcripts"], inplace=True)
+        logging.info("Clean transcript column added to the dataset.")
         return df
 
     def count_number_of_tokens(self, df: pd.DataFrame) -> pd.DataFrame:
