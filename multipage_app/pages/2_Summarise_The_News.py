@@ -1,36 +1,36 @@
 import streamlit as st
-from streamlit_message import message
-from utils.rag import YoutubeSearchAssistant
-from utils.helper import Helper
+from utils.rag import LangchainAssistant
 from utils.vector_database import PineconeHelper
 
-config_path = "multipage_app/utils/config.json"
-helper = Helper(config_path)
-config = helper.load_config()
-pinecone_api = config["PINECONE_API_KEY"]
-openai_api = config["OPENAI_API_KEY"]
+index_name = "all-news"
 
-yt_search = YoutubeSearchAssistant()
-pc = PineconeHelper(pinecone_api, index_name="golf")
+lc_assistant = LangchainAssistant(index_name=index_name)
+pc_client = PineconeHelper(index_name=index_name)
 
 
-def langchain():
-    # Pinecone
-    index = pc.pinecone_index()
-    embeddings = yt_search.langchain_embeddings()
-    vectorstore = yt_search.langchain_vectorstore(index, embeddings)
-    model = yt_search.langchain_model()
+def initialise_langchain():
+    # Pinecone Index
+    index = pc_client.pinecone_index()
 
-    retriever = yt_search.multi_query_retriever(vectorstore, model)
-    prompt = yt_search.prompt_system_human_prompt()
+    # Generate embeddings and setup vectorstore
+    embeddings = lc_assistant.langchain_embeddings()
+    vectorstore = lc_assistant.langchain_vectorstore(embeddings)
 
-    chain = yt_search.langchain_chain(retriever, prompt, model)
+    # Model and retriever setup
+    model = lc_assistant.langchain_model()
+    retriever = lc_assistant.multi_query_retriever(vectorstore, model)
+
+    # Prompt template setup
+    prompt = lc_assistant.prompt_system_human_prompt()
+
+    # Langchain chain setup
+    chain = lc_assistant.langchain_chain(retriever, prompt, model)
 
     return chain
 
 
 page_config = {
-    "page_title": "Ask Youtube Anything",
+    "page_title": "Summarise The News",
     "layout": "centered",
     "initial_sidebar_state": "auto",
 }
@@ -69,14 +69,14 @@ for message in st.session_state.messages:
 
 response = ""
 
-if prompt := st.chat_input("Say something?"):
+if prompt := st.chat_input("Ask your question?"):
     # Display user message in chat message container
     st.chat_message("user").markdown(prompt)
 
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
-    chain = langchain()
-    response = yt_search.langchain_streamlit_invoke(prompt=prompt, chain=chain)
+    chain = initialise_langchain()
+    response = lc_assistant.langchain_streamlit_invoke(prompt=prompt, chain=chain)
     with st.chat_message("assistant"):
         response
 

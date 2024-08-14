@@ -1,6 +1,5 @@
 import os
 from logging import Logger
-from datetime import datetime, timedelta
 from newsapi import NewsApiClient
 import json
 from typing import List, Dict
@@ -8,7 +7,6 @@ import uuid
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from openai import OpenAI
 from utils.vector_database import PineconeHelper
-import logging
 from logging_utils.log_helper import get_logger
 
 # logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
@@ -23,16 +21,15 @@ openai_client = OpenAI(api_key=openai_api_key)
 pc_client = PineconeHelper(api_key=pinecone_api, index_name="all-news")
 
 
-def get_content_dict(page: int = 1) -> List[Dict]:
+def get_content_dict(user_input: str, page: int = 1) -> List[Dict]:
     """
     Fetches articles from News API and returns a list of dictionaries containing content and metadata.
     """
     logger.info(f"Fetching articles for page {page}...")
     all_articles = newsapi_client.get_everything(
-        q="Artificial Intelligence",
+        q=f"{user_input}",
         sources="bbc-news,the-verge",
-        domains="techcrunch.com",
-        # bbc.co.uk
+        domains="techcrunch.com, bbc.co.uk",
         from_param="2024-08-01",
         to="2024-08-02",
         language="en",
