@@ -2,6 +2,7 @@ import json
 import os
 import logging
 
+
 class Helper:
     def __init__(self, config_path) -> None:
         self.config_path = config_path
