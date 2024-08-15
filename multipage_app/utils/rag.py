@@ -14,10 +14,10 @@ import streamlit as st
 import logging
 from logging_utils.log_helper import get_logger
 from logging import Logger
-
+import os
 # logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
 logger: Logger = get_logger(__name__)
-
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
 class LangchainAssistant:
     def __init__(self, index_name: str):
@@ -46,6 +46,24 @@ class LangchainAssistant:
         )
         logger.info(f"The retrieved content: {retriever}")
         return retriever
+
+    def summarise_prompt(self):
+        prompt_template = """
+        Please summarize the key points of the article in a polite, concise, and clear manner./n 
+        Ensure the summary captures the most important information, highlights any critical details,/n 
+        and is easy to understand.
+        context: {context}
+        qustion: {question}
+
+        Summary:
+
+        """
+        prompt = PromptTemplate(
+            input_variables = ["context", "question"],
+            template = prompt_template
+        )
+        return prompt
+
 
     def prompt_system_human_prompt(self):
         review_system_template_str = """
@@ -81,7 +99,7 @@ class LangchainAssistant:
         return review_prompt_template
 
     def langchain_model(self):
-        model = ChatOpenAI(temperature=0.2, model="gpt-3.5-turbo-0125")
+        model = ChatOpenAI(temperature=0.2, api_key = openai_api_key, model="gpt-4o-mini")
         return model
 
     def langchain_chain(self, retriever, prompt, model):

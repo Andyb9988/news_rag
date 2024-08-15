@@ -1,7 +1,11 @@
 import streamlit as st
 from utils.rag import LangchainAssistant
 from utils.vector_database import PineconeHelper
-
+from logging_utils.log_helper import get_logger
+from logging import Logger
+from langchain_core.runnables import RunnableParallel, RunnablePassthrough
+from langchain_core.output_parser import StrOutputParser
+logger: Logger = get_logger(__name__)
 index_name = "all-news"
 
 lc_assistant = LangchainAssistant(index_name=index_name)
@@ -9,25 +13,28 @@ pc_client = PineconeHelper(index_name=index_name)
 
 
 def initialise_langchain():
-    # Pinecone Index
-    index = pc_client.pinecone_index()
-
     # Generate embeddings and setup vectorstore
     embeddings = lc_assistant.langchain_embeddings()
     vectorstore = lc_assistant.langchain_vectorstore(embeddings)
 
     # Model and retriever setup
     model = lc_assistant.langchain_model()
-    retriever = lc_assistant.multi_query_retriever(vectorstore, model)
-
+    retriever = lc_assistant.langchain_retriever(vectorstore)
     # Prompt template setup
-    prompt = lc_assistant.prompt_system_human_prompt()
+    prompt = lc_assistant.summarise_prompt()
 
-    # Langchain chain setup
-    chain = lc_assistant.langchain_chain(retriever, prompt, model)
+    logger.info(f"Model: {model}, Retriever: {retriever}, prompt: {prompt}")
+    return model, retriever, prompt
 
-    return chain
+model, retriever, prompt = initialise_langchain()
 
+def rag_chain(prompt):
+    return (
+        {"context": RunnablePassthrough(), "question": RunnablePassthrough()}
+        | prompt
+        | model
+        | StrOutputParser())
+ 
 
 page_config = {
     "page_title": "Summarise The News",
@@ -73,10 +80,20 @@ if prompt := st.chat_input("Ask your question?"):
     # Display user message in chat message container
     st.chat_message("user").markdown(prompt)
 
+    news = retriever.invoke(prompt)
+    for i, doc in enumerate(news):
+        logger.info(f"Document {i+1}")
+        logger.info(f"Content: {doc.page_content}")
+        logger.info(f"Metadata: {doc.metadata}")
+
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
-    chain = initialise_langchain()
-    response = lc_assistant.langchain_streamlit_invoke(prompt=prompt, chain=chain)
+    rag = rag_chain(prompt=prompt)
+    response = rag.invoke(
+        {"context": news, "question": prompt}
+    )
+
+  #  response = lc_assistant.langchain_streamlit_invoke(prompt=prompt, chain=chain)
     with st.chat_message("assistant"):
         response
 

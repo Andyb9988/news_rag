@@ -24,7 +24,7 @@ class GetNews:
             sources="bbc-news,the-verge",
             domains="techcrunch.com, bbc.co.uk",
             from_param="2024-08-01",
-            to="2024-08-02",
+            to="2024-08-07",
             language="en",
             sort_by="relevancy",
             page=page,
