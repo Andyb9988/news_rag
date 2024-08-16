@@ -1,22 +1,20 @@
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Optional
 import time
-from logging import Logger
 from pinecone import ServerlessSpec, PodSpec
 from pinecone import Pinecone as Pinecone_Client
-from logging_utils.log_helper import get_logger
 import os
+from langchain_openai import OpenAIEmbeddings
+from langchain_pinecone import PineconeVectorStore
+from langchain_core.documents import Document
+from uuid import uuid4
 
-# logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
+from logging_utils.log_helper import get_logger
+from logging import Logger
+
 logger: Logger = get_logger(__name__)
 
-# logging.basicConfig(
-#     level=logging.DEBUG,
-#     filename="app.log",
-#     filemode="w",
-#     format="%(name)s - %(levelname)s - %(message)s",
-# )
-
 pinecone_api = os.getenv("PINECONE_API")
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
 
 class PineconeHelper:
@@ -30,6 +28,10 @@ class PineconeHelper:
         """
         self.pc = Pinecone_Client(api_key=pinecone_api)
         self.index_name = index_name
+        self.embedding = OpenAIEmbeddings(
+            model="text-embedding-3-small",
+            api_key=openai_api_key,
+        )
 
     def pinecone_index(self):
         """
@@ -75,3 +77,17 @@ class PineconeHelper:
 
         self.index.upsert(data_file, namespace=f"{namespace}")
         logger.info("upserted datafiles correctly.")
+
+    def langchain_upload_documents_to_vdb(
+        self, docs: List[Document], namespace: Optional[str] = None
+    ):
+        pc_vectorstore = PineconeVectorStore(
+            pinecone_api_key=pinecone_api,
+            index_name=self.index_name,
+            embedding=self.embedding,
+            namespace=namespace,
+        )
+        logger.info(f"Initialised vectorestore {pc_vectorstore}.")
+        uuids = [str(uuid4()) for _ in range(len(docs))]
+        pc_vectorstore.add_documents(documents=docs, ids=uuids)
+        logger.info(f"Documents successfully uploaded to pincecone vectorstore.")

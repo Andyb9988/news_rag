@@ -11,13 +11,17 @@ from langchain.prompts import (
 )
 from langchain.retrievers.multi_query import MultiQueryRetriever
 import streamlit as st
+import os
+
 import logging
 from logging_utils.log_helper import get_logger
 from logging import Logger
-import os
-# logging.basicConfig(level=logging.DEBUG, filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
+
 logger: Logger = get_logger(__name__)
+
 openai_api_key = os.getenv("OPENAI_API_KEY")
+pinecone_api = os.getenv("PINECONE_API")
+
 
 class LangchainAssistant:
     def __init__(self, index_name: str):
@@ -28,7 +32,11 @@ class LangchainAssistant:
         return embeddings
 
     def langchain_vectorstore(self, embeddings):
-        vectorstore = PineconeVectorStore(self.pc_index, embeddings)
+        vectorstore = PineconeVectorStore(
+            index_name=self.pc_index,
+            embedding=embeddings,
+            pinecone_api_key=pinecone_api,
+        )
         logger.info(
             f"initialised vectore store: {vectorstore} using index: {self.pc_index}"
         )
@@ -49,8 +57,8 @@ class LangchainAssistant:
 
     def summarise_prompt(self):
         prompt_template = """
-        Please summarize the key points of the article in a polite, concise, and clear manner./n 
-        Ensure the summary captures the most important information, highlights any critical details,/n 
+        Please summarize the key points of the article in a polite, concise, and clear manner. 
+        Ensure the summary captures the most important information, highlights any critical details, 
         and is easy to understand.
         context: {context}
         qustion: {question}
@@ -59,11 +67,9 @@ class LangchainAssistant:
 
         """
         prompt = PromptTemplate(
-            input_variables = ["context", "question"],
-            template = prompt_template
+            input_variables=["context", "question"], template=prompt_template
         )
         return prompt
-
 
     def prompt_system_human_prompt(self):
         review_system_template_str = """
@@ -99,18 +105,8 @@ class LangchainAssistant:
         return review_prompt_template
 
     def langchain_model(self):
-        model = ChatOpenAI(temperature=0.2, api_key = openai_api_key, model="gpt-4o-mini")
+        model = ChatOpenAI(temperature=0.2, api_key=openai_api_key, model="gpt-4o-mini")
         return model
-
-    def langchain_chain(self, retriever, prompt, model):
-        chain = (
-            RunnableParallel({"context": retriever, "question": RunnablePassthrough()})
-            | prompt
-            | model
-            | StrOutputParser()
-        )
-        logging.info("Langchain chain running correctly.")
-        return chain
 
     def langchain_invoke(self, chain):
         query = str(input("What do you want to search on Youtube?"))

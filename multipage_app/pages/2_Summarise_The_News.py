@@ -4,7 +4,8 @@ from utils.vector_database import PineconeHelper
 from logging_utils.log_helper import get_logger
 from logging import Logger
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough
-from langchain_core.output_parser import StrOutputParser
+from langchain_core.output_parsers import StrOutputParser
+
 logger: Logger = get_logger(__name__)
 index_name = "all-news"
 
@@ -26,15 +27,25 @@ def initialise_langchain():
     logger.info(f"Model: {model}, Retriever: {retriever}, prompt: {prompt}")
     return model, retriever, prompt
 
+
 model, retriever, prompt = initialise_langchain()
 
-def rag_chain(prompt):
-    return (
-        {"context": RunnablePassthrough(), "question": RunnablePassthrough()}
-        | prompt
-        | model
-        | StrOutputParser())
- 
+
+def rag_chain():
+    # Assuming RunnablePassthrough, model, and StrOutputParser are callable and can be chained
+    context_question = {
+        "context": RunnablePassthrough(),
+        "question": RunnablePassthrough(),
+    }
+
+    # Apply the prompt to the context_question processing
+    processed_context_question = model(context_question | prompt)
+
+    # Parse the output string
+    parsed_output = StrOutputParser(processed_context_question)
+
+    return parsed_output
+
 
 page_config = {
     "page_title": "Summarise The News",
@@ -88,12 +99,10 @@ if prompt := st.chat_input("Ask your question?"):
 
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
-    rag = rag_chain(prompt=prompt)
-    response = rag.invoke(
-        {"context": news, "question": prompt}
-    )
+    rag = rag_chain()
+    response = rag.invoke({"context": news, "question": prompt})
 
-  #  response = lc_assistant.langchain_streamlit_invoke(prompt=prompt, chain=chain)
+    #  response = lc_assistant.langchain_streamlit_invoke(prompt=prompt, chain=chain)
     with st.chat_message("assistant"):
         response
 
