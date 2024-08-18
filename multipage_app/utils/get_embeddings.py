@@ -1,12 +1,14 @@
 import os
-from logging import Logger
 from typing import List, Dict
 from openai import OpenAI
-from logging_utils.log_helper import get_logger
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 
+from logging import Logger
+from logging_utils.log_helper import get_logger
+
 logger: Logger = get_logger(__name__)
+
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
 
@@ -63,4 +65,8 @@ class GenerateEmbeddings:
             )
             embedding.append(embedding)
 
+        return embeddings
+
+    def langchain_embedding_model(self):
+        embeddings = self.langchain_openai_embedding
         return embeddings

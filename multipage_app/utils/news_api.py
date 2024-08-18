@@ -18,12 +18,12 @@ class GetNews:
         """
         Fetches articles from News API and returns a list of dictionaries containing content and metadata.
         """
-        # logger.info(f"Fetching articles for page {page}...")
+        logger.info(f"Fetching articles for page {page}...")
         all_articles = self.newsapi_client.get_everything(
             q=f"{user_input}",
             sources="bbc-news,the-verge",
             domains="techcrunch.com, bbc.co.uk",
-            from_param="2024-08-11",
+            from_param="2024-08-07",
             to="2024-08-15",
             language="en",
             sort_by="relevancy",

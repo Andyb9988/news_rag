@@ -1,50 +1,47 @@
 import streamlit as st
 from utils.rag import LangchainAssistant
 from utils.vector_database import PineconeHelper
+from utils.get_embeddings import GenerateEmbeddings
 from logging_utils.log_helper import get_logger
 from logging import Logger
-from langchain_core.runnables import RunnableParallel, RunnablePassthrough
+from langchain_core.runnables import (
+    RunnableParallel,
+    RunnablePassthrough,
+)
 from langchain_core.output_parsers import StrOutputParser
 
 logger: Logger = get_logger(__name__)
 index_name = "all-news"
 
-lc_assistant = LangchainAssistant(index_name=index_name)
+lc_client = LangchainAssistant(index_name=index_name)
 pc_client = PineconeHelper(index_name=index_name)
+embed_client = GenerateEmbeddings()
+
+embedding = embed_client.langchain_embedding_model()
+vectorstore = pc_client.langchain_pinecone_vectorstore(embeddings=embedding)
+retriever = vectorstore.as_retriever(search_kwargs={"k": 10, "namespace": "AI"})
+prompt = lc_client.summarise_prompt()
+model = lc_client.langchain_model()
 
 
-def initialise_langchain():
-    # Generate embeddings and setup vectorstore
-    embeddings = lc_assistant.langchain_embeddings()
-    vectorstore = lc_assistant.langchain_vectorstore(embeddings)
-
-    # Model and retriever setup
-    model = lc_assistant.langchain_model()
-    retriever = lc_assistant.langchain_retriever(vectorstore)
-    # Prompt template setup
-    prompt = lc_assistant.summarise_prompt()
-
-    logger.info(f"Model: {model}, Retriever: {retriever}, prompt: {prompt}")
-    return model, retriever, prompt
+def clear_chat_history():
+    st.session_state.messages = [
+        {"role": "assistant", "content": "How may I assist you today?"}
+    ]
 
 
-model, retriever, prompt = initialise_langchain()
+def format_docs(docs):
+    return "\n\n".join([d.page_content for d in docs])
 
 
-def rag_chain():
-    # Assuming RunnablePassthrough, model, and StrOutputParser are callable and can be chained
-    context_question = {
-        "context": RunnablePassthrough(),
-        "question": RunnablePassthrough(),
-    }
-
-    # Apply the prompt to the context_question processing
-    processed_context_question = model(context_question | prompt)
-
-    # Parse the output string
-    parsed_output = StrOutputParser(processed_context_question)
-
-    return parsed_output
+def chain():
+    rag_chain = (
+        RunnableParallel({"context": retriever, "question": RunnablePassthrough()})
+        | lc_client.summarise_prompt()
+        | model
+        | StrOutputParser()
+    )
+    return rag_chain
 
 
 page_config = {
@@ -66,13 +63,6 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-
-def clear_chat_history():
-    st.session_state.messages = [
-        {"role": "assistant", "content": "How may I assist you today?"}
-    ]
-
-
 if "messages" not in st.session_state:
     st.session_state["messages"] = [
         {"role": "system", "content": "You are a helpful assistant."}
@@ -91,19 +81,13 @@ if prompt := st.chat_input("Ask your question?"):
     # Display user message in chat message container
     st.chat_message("user").markdown(prompt)
 
-    news = retriever.invoke(prompt)
-    for i, doc in enumerate(news):
-        logger.info(f"Document {i+1}")
-        logger.info(f"Content: {doc.page_content}")
-        logger.info(f"Metadata: {doc.metadata}")
+    docs = retriever.invoke(prompt)
+    formatted_docs = format_docs(docs)
 
-    # Add user message to chat history
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    rag = rag_chain()
-    response = rag.invoke({"context": news, "question": prompt})
-
-    #  response = lc_assistant.langchain_streamlit_invoke(prompt=prompt, chain=chain)
+    rag_chain = chain()
+    response = rag_chain.invoke(prompt)
+    # "context": formatted_docs, "question": prompt}
     with st.chat_message("assistant"):
-        response
+        st.markdown(response)
 
     st.session_state.messages.append({"role": "assistant", "content": response})
