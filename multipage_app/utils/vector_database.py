@@ -1,40 +1,43 @@
-import pandas as pd
-from typing import List, Dict, Union, Tuple
-import json
-#from utils.helper import Helper
-from helper import Helper
-from google.cloud import storage
-import json
-from io import BytesIO
-config_path = "utils/config.json"
-
+from typing import List, Dict, Union, Optional
+import time
 from pinecone import ServerlessSpec, PodSpec
 from pinecone import Pinecone as Pinecone_Client
-from openai import OpenAI
-import langchain
-import json
-import string
-from langchain_community.document_loaders import GCSFileLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-import time
-import logging
+from pinecone.grpc import PineconeGRPC as Pinecone
+import os
+from langchain_openai import OpenAIEmbeddings
+from langchain_pinecone import PineconeVectorStore
+from langchain_core.documents import Document
+from uuid import uuid4
 
-class Pinecone:
-    def __init__(self, api_key: str, index_name: str):
+from logging_utils.log_helper import get_logger
+from logging import Logger
+
+logger: Logger = get_logger(__name__)
+
+pinecone_api = os.getenv("PINECONE_API")
+openai_api_key = os.getenv("OPENAI_API_KEY")
+
+
+class PineconeHelper:
+    def __init__(self, index_name: str):
         """
         Initializes the Pinecone client with the specified API key and index name.
-        
+
         Args:
             api_key (str): The API key for Pinecone.
             index_name (str): The name of the Pinecone index to be used.
         """
-        self.pc = Pinecone_Client(api_key = api_key)
+        self.pc = Pinecone_Client(api_key=pinecone_api)
         self.index_name = index_name
+        self.embedding = OpenAIEmbeddings(
+            model="text-embedding-3-small",
+            api_key=openai_api_key,
+        )
 
     def pinecone_index(self):
         """
         Configures the Pinecone index based on the instance's index name. Creates the index if it does not exist.
-        
+
         Returns:
             Pinecone Index object.
         """
@@ -43,119 +46,91 @@ class Pinecone:
             self.index = self.pc.Index(self.index_name)
 
         else:
-        # create a new index
+            # create a new index
             if use_serverless:
-                spec = ServerlessSpec(cloud='aws', region='us-west-2')
+                spec = ServerlessSpec(cloud="aws", region="us-east-1")
             else:
                 # if not using a starter index, you should specify a pod_type too
                 spec = PodSpec()
-               
+
             self.pc.create_index(
-                    self.index_name,
-                    dimension=1536,  # dimensionality of text-embedding-ada-002
-                    metric='cosine',
-                    spec=spec
-                )
-            while not self.pc.describe_index(self.index_name).status['ready']:
-                    time.sleep(1)
+                self.index_name,
+                dimension=1536,  # dimensionality of text-embedding-ada-002
+                metric="cosine",
+                spec=spec,
+            )
+            while not self.pc.describe_index(self.index_name).status["ready"]:
+                time.sleep(1)
             self.index = self.pc.Index(self.index_name)
-            
-        logging.info(f"Index {self.index_name} stats: {self.index.describe_index_stats()}")
+
+        logger.info(
+            f"Index {self.index_name} stats: {self.index.describe_index_stats()}"
+        )
         return self.index
-    
-    def upsert_data(self, data_file: Union[Dict, List[Dict]]) -> None:
+
+    def upsert_data(
+        self, data_file: Union[Dict, List[Dict]], namespace: Optional[str] = None
+    ) -> None:
         """
         Upserts data into the configured Pinecone index.
-        
+
         Args:
             data_file (Union[Dict, List[Dict]]): The data to upsert into the index.
         """
-        self.index.upsert(data_file)
-        logging.info(f"After adding the new documents {self.index.describe_index_stats()}")
 
-class PrepareTextForVDB:
-    def __init__(self, folder_name: str):
-        """
-        Initializes the class with a specific folder within the GCS bucket from which to load data.
-        
-        Args:
-            folder_name (str): The name of the folder within the GCS bucket.
-        """
-        self.folder_path = f"{folder_name}/{folder_name}_clean_transcripts"
-        self.bucket_name = "youtube-transcript-data"
-        self.project_name = "youtube-to-gpt"
-        self.client = OpenAI()
-    
+        self.index.upsert(data_file, namespace=f"{namespace}")
+        logger.info("upserted datafiles correctly.")
 
-    def list_blobs_in_folder(self) -> List[storage.Blob]:
-        """Lists all the blobs in the specified GCS folder."""
-        storage_client = storage.Client()
-        bucket = storage_client.get_bucket(self.bucket_name)
-        
-        blobs = bucket.list_blobs(prefix=self.folder_path) 
-        logging.info("All blobs are loaded and added to a list.")   
-        return list(blobs)
+    def langchain_upload_documents_to_vdb(
+        self, docs: List[Document], namespace: Optional[str] = None
+    ):
+        uuids = [str(uuid4()) for _ in range(len(docs))]
+        if namespace is None:
+            namespace = ""
 
-    def load_blobs(self, blobs: List[storage.Blob]) -> List:
-        documents = []
-        for blob in blobs:
-            try:
-                loader = GCSFileLoader(project_name=self.project_name, bucket=self.bucket_name, blob=blob.name)
-                loaded_docs = loader.load()
-                documents.extend(loaded_docs)
-                logging.info("Documents are loaded and have been added to a list")
-            except PermissionError as e:
-                logging.error(f"Permission denied for blob {blob.name}. Skipping download.")
-                logging.error(f"Error details: {str(e)}")
-        return documents
-
-    def split_documents(self, documents, chunk_size: int = 1000, chunk_overlap: int = 200) -> List:
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            length_function=len,
-            is_separator_regex=False,
+        pc_vectorstore = PineconeVectorStore(
+            pinecone_api_key=pinecone_api,
+            index_name=self.index_name,
+            embedding=self.embedding,
+            namespace=namespace,
         )
-        split_docs = text_splitter.split_documents(documents)
-        logging.info("The list of documents are now recursively split.")
-        return split_docs
 
-    def _create_embedding_list(self, split_docs: List) -> List[List[float]]:
-        embed_list = [self.client.embeddings.create(input=[i.page_content], model="text-embedding-3-small").data[0].embedding for i in split_docs]
-        return embed_list
-    
-    def _create_metatdata_list(self, split_docs: List) -> List[dict]:
-        meta_list = [{"video_id": i.metadata["source"], "text": i.page_content} for i in split_docs]
-        return meta_list
-    
-    def _create_ids(self, split_docs: List) -> List[str]:
-        ids = [str(i) for i in range(0, len(split_docs))]
-        return ids
-    
-    def create_zip_file(self, split_docs: List) -> List[Tuple[str, List[float], dict]]:
-        ids = self._create_ids(split_docs)
-        embed_list = self._create_embedding_list(split_docs)
-        meta_list = self._create_metatdata_list(split_docs)
-        logging.info("Zip file create with ID, embeddings and metadata.")
-        return zip(ids, embed_list, meta_list)
-    
-def main():
-    helper = Helper(config_path)
-    config = helper.load_config()
-    pinecone_api = config["PINECONE_API_KEY"]
-    openai_api = config["OPENAI_API_KEY"]
-    folder_name = "golf"
-        #Create Pinecone Index
-    pinecone = Pinecone(pinecone_api, index_name=folder_name)
-    index = pinecone.pinecone_index()
-    #Prepare text for upsert
-    prep_text_for_rag = PrepareTextForVDB(folder_name=folder_name)
-    blob_list = prep_text_for_rag.list_blobs_in_folder()
-    blob_docs = prep_text_for_rag.load_blobs(blob_list)
-    split_documents = prep_text_for_rag.split_documents(blob_docs)
-    zip_file = prep_text_for_rag.create_zip_file(split_documents)
-    #Upsert transcript
-    pinecone.upsert_data(zip_file)
+        logger.info(
+            f"Initialised vectorstore {pc_vectorstore} with namespace '{namespace}'."
+        )
+        pc_vectorstore.add_documents(documents=docs, ids=uuids)
+        logger.info("Documents successfully uploaded to Pinecone vectorstore.")
 
-if __name__ == '__main__':
-    main()
+    def langchain_pinecone_vectorstore(self, embeddings):
+        vectorstore = PineconeVectorStore(
+            index_name=self.index_name,
+            embedding=embeddings,
+            pinecone_api_key=pinecone_api,
+        )
+        # logger.info(
+        #     f"initialised vectore store: {vectorstore} using index: {self.index_name}"
+        # )
+        return vectorstore
+
+    def pincecone_stats(self):
+        self.index = self.pc.Index(self.index_name)
+        index_stats = self.index.describe_index_stats()
+        return f"Index stats: {index_stats}"
+
+    def pinecone_delete_index_by_ids(
+        self,
+        namespace: Optional[str] = None,
+        ids: Optional[List[str]] = None,
+    ):
+        vectorstore = PineconeVectorStore(
+            index_name=self.index_name,
+            pinecone_api_key=pinecone_api,
+            namespace=namespace,
+            ids=ids,
+        )
+
+        vectorstore.delete()
+
+    def pinecone_delete_index_by_namespace(self, namespace: Optional[str] = None):
+        index = self.pc.Index(name=self.index_name)
+        index.delete(delete_all=True, namespace=namespace)
