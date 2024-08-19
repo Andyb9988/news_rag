@@ -8,10 +8,12 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain_core.documents import Document
 from uuid import uuid4
+from config.config import PipelineConfiguration, get_pipeline_config
 
 from logging_utils.log_helper import get_logger
 from logging import Logger
 
+APP_CONFIG: PipelineConfiguration = get_pipeline_config()
 logger: Logger = get_logger(__name__)
 
 pinecone_api = os.getenv("PINECONE_API")
@@ -28,9 +30,10 @@ class PineconeHelper:
             index_name (str): The name of the Pinecone index to be used.
         """
         self.pc = Pinecone_Client(api_key=pinecone_api)
+        self.embed_model = APP_CONFIG.openai_embedding_model
         self.index_name = index_name
         self.embedding = OpenAIEmbeddings(
-            model="text-embedding-3-small",
+            model=self.embed_model,
             api_key=openai_api_key,
         )
 

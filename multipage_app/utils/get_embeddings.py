@@ -3,20 +3,21 @@ from typing import List, Dict
 from openai import OpenAI
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
-
+from config.config import PipelineConfiguration, get_pipeline_config
 from logging import Logger
 from logging_utils.log_helper import get_logger
 
 logger: Logger = get_logger(__name__)
-
+APP_CONFIG: PipelineConfiguration = get_pipeline_config()
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
 
 class GenerateEmbeddings:
     def __init__(self) -> None:
         self.client = OpenAI(api_key=openai_api_key)
+        self.embed_model = APP_CONFIG.openai_embedding_model
         self.langchain_openai_embedding = OpenAIEmbeddings(
-            model="text-embedding-3-small",
+            model=self.embed_model,
             api_key=openai_api_key,
         )
 
@@ -35,7 +36,7 @@ class GenerateEmbeddings:
             )
             response = (
                 self.client.embeddings.create(
-                    input=[content_chunk], model="text-embedding-3-small"
+                    input=[content_chunk], model=self.embed_model
                 )
                 .data[0]
                 .embedding

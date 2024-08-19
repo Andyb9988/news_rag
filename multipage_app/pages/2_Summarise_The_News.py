@@ -2,16 +2,23 @@ import streamlit as st
 from utils.rag import LangchainAssistant
 from utils.vector_database import PineconeHelper
 from utils.get_embeddings import GenerateEmbeddings
-from logging_utils.log_helper import get_logger
-from logging import Logger
+from utils.streamlit_frontend import (
+    format_docs,
+    format_docs_metadata,
+    clear_chat_history,
+)
 from langchain_core.runnables import (
     RunnableParallel,
     RunnablePassthrough,
 )
 from langchain_core.output_parsers import StrOutputParser
+from config.config import PipelineConfiguration, get_pipeline_config
+from logging_utils.log_helper import get_logger
+from logging import Logger
 
+APP_CONFIG: PipelineConfiguration = get_pipeline_config()
 logger: Logger = get_logger(__name__)
-index_name = "all-news"
+index_name = APP_CONFIG.pc_index_name_news
 
 lc_client = LangchainAssistant(index_name=index_name)
 pc_client = PineconeHelper(index_name=index_name)
@@ -19,19 +26,9 @@ embed_client = GenerateEmbeddings()
 
 embedding = embed_client.langchain_embedding_model()
 vectorstore = pc_client.langchain_pinecone_vectorstore(embeddings=embedding)
-retriever = vectorstore.as_retriever(search_kwargs={"k": 10, "namespace": "AI"})
+retriever = vectorstore.as_retriever(search_kwargs={"k": 5, "namespace": "AI"})
 prompt = lc_client.summarise_prompt()
 model = lc_client.langchain_model()
-
-
-def clear_chat_history():
-    st.session_state.messages = [
-        {"role": "assistant", "content": "How may I assist you today?"}
-    ]
-
-
-def format_docs(docs):
-    return "\n\n".join([d.page_content for d in docs])
 
 
 def chain():
@@ -77,6 +74,7 @@ if prompt := st.chat_input("Ask your question?"):
     st.chat_message("user").markdown(prompt)
 
     docs = retriever.invoke(prompt)
+    logger.info(f"Retrieved docs: {docs}")
     formatted_docs = format_docs(docs)
 
     rag_chain = chain()
@@ -86,3 +84,11 @@ if prompt := st.chat_input("Ask your question?"):
         st.markdown(response)
 
     st.session_state.messages.append({"role": "assistant", "content": response})
+
+    st.sidebar.header("News References")
+    metadata_formatted = format_docs_metadata(docs)
+    for i, doc in enumerate(metadata_formatted):
+        st.sidebar.markdown(f"***{i+1}***")
+        st.sidebar.markdown(f"***Title:*** {doc['title']}")
+        st.sidebar.markdown(f"***Link:*** [{doc['link']}]({doc['link']})")
+        st.sidebar.divider()

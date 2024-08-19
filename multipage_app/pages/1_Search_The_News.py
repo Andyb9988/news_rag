@@ -2,12 +2,13 @@ import streamlit as st
 from utils.vector_database import PineconeHelper
 from utils.data_processor import process_and_chunk_articles, return_news_docs
 from utils.news_api import GetNews
+from config.config import PipelineConfiguration, get_pipeline_config
 from logging import Logger
 from logging_utils.log_helper import get_logger
 
-# youtube_to_gpt\utils\vector_database.py
 logger: Logger = get_logger(__name__)
-index_name = "all-news"
+APP_CONFIG: PipelineConfiguration = get_pipeline_config()
+index_name = APP_CONFIG.pc_index_name_news
 
 news_client = GetNews()
 pc_client = PineconeHelper(index_name=index_name)
