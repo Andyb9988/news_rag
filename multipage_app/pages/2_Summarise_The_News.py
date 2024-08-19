@@ -51,21 +51,16 @@ page_config = {
 }
 st.set_page_config(**page_config)
 st.markdown(
-    "<h1 style='text-align: center;'> Ask Youtube Anything </h1>",
+    "<h1 style='text-align: center;'> Summarise the News with Gaz </h1>",
     unsafe_allow_html=True,
 )
 
-with st.sidebar:
-    st.markdown(
-        """
-        <h2> Welcome to a simple RAG APP </h2>
-        """,
-        unsafe_allow_html=True,
-    )
-
 if "messages" not in st.session_state:
     st.session_state["messages"] = [
-        {"role": "system", "content": "You are a helpful assistant."}
+        {
+            "role": "system",
+            "content": "Hello, I am Gaz, your helpful news summariser assistant. Please start by asking a question.😆",
+        }
     ]
 
 st.sidebar.button("Clear Chat History", on_click=clear_chat_history)
