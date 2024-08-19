@@ -25,20 +25,32 @@ pc_client = PineconeHelper(index_name=index_name)
 embed_client = GenerateEmbeddings()
 
 embedding = embed_client.langchain_embedding_model()
-vectorstore = pc_client.langchain_pinecone_vectorstore(embeddings=embedding)
-retriever = vectorstore.as_retriever(search_kwargs={"k": 5, "namespace": "AI"})
 prompt = lc_client.summarise_prompt()
 model = lc_client.langchain_model()
 
 
 def chain():
     rag_chain = (
-        RunnableParallel({"context": retriever, "question": RunnablePassthrough()})
+        RunnableParallel(
+            {"context": RunnablePassthrough(), "question": RunnablePassthrough()}
+        )
         | lc_client.summarise_prompt()
         | model
         | StrOutputParser()
     )
     return rag_chain
+
+
+if "vectorstore" not in st.session_state:
+    st.session_state.vectorstore = pc_client.langchain_pinecone_vectorstore(
+        embeddings=embedding
+    )
+if "retriever" not in st.session_state:
+    st.session_state.retriever = st.session_state.vectorstore.as_retriever(
+        search_kwargs={"k": 5, "namespace": "AI"}
+    )
+if "rag_chain" not in st.session_state:
+    st.session_state.rag_chain = chain()
 
 
 page_config = {
@@ -73,13 +85,11 @@ if prompt := st.chat_input("Ask your question?"):
     # Display user message in chat message container
     st.chat_message("user").markdown(prompt)
 
-    docs = retriever.invoke(prompt)
+    docs = st.session_state.retriever.invoke(prompt)
     logger.info(f"Retrieved docs: {docs}")
     formatted_docs = format_docs(docs)
-
-    rag_chain = chain()
-    response = rag_chain.invoke(prompt)
-    # "context": formatted_docs, "question": prompt}
+    chain_input = {"context": formatted_docs, "question": prompt}
+    response = st.session_state.rag_chain.invoke(chain_input)
     with st.chat_message("assistant"):
         st.markdown(response)
 
