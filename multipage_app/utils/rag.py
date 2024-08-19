@@ -8,10 +8,12 @@ from langchain.prompts import (
 from langchain.retrievers.multi_query import MultiQueryRetriever
 import os
 
+from config.config import PipelineConfiguration, get_pipeline_config
 from logging_utils.log_helper import get_logger
 from logging import Logger
 
 logger: Logger = get_logger(__name__)
+APP_CONFIG: PipelineConfiguration = get_pipeline_config()
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 pinecone_api = os.getenv("PINECONE_API")
@@ -20,9 +22,12 @@ pinecone_api = os.getenv("PINECONE_API")
 class LangchainAssistant:
     def __init__(self, index_name: str):
         self.pc_index = index_name
+        self.llm_model = APP_CONFIG.openai_llm_model
 
     def langchain_model(self):
-        model = ChatOpenAI(temperature=0.2, api_key=openai_api_key, model="gpt-4o-mini")
+        model = ChatOpenAI(
+            temperature=0.2, api_key=openai_api_key, model=self.llm_model
+        )
         return model
 
     def multi_query_retriever(self, vectorstore, llm):

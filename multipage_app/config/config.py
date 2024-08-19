@@ -6,14 +6,23 @@ from dataclasses import dataclass
 class PipelineConfiguration:
     """Dataclass that contains all required configurables for the RAG."""
 
-    project_id: str
+    pc_index_name_news: str
+    openai_embedding_model: str
+    openai_llm_model: str
 
 
 development: PipelineConfiguration = PipelineConfiguration(
-    project_id=" ",
+    pc_index_name_news="all-news",
+    openai_embedding_model="text-embedding-3-small",
+    openai_llm_model="gpt-4o-mini",
 )
 
-production: PipelineConfiguration = PipelineConfiguration()
+
+production: PipelineConfiguration = PipelineConfiguration(
+    pc_index_name_news="all-news",
+    openai_embedding_model="text-embedding-3-small",
+    openai_llm_model="gpt-4o-mini",
+)
 
 
 def get_pipeline_config() -> PipelineConfiguration:
