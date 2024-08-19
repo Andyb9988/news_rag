@@ -1,23 +1,27 @@
-from typing import List, Dict, Union, Optional
-import time
-from pinecone import ServerlessSpec, PodSpec
-from pinecone import Pinecone as Pinecone_Client
-from pinecone.grpc import PineconeGRPC as Pinecone
 import os
+import time
+from typing import List, Dict, Union, Optional
+from uuid import uuid4
+from pinecone import Pinecone as Pinecone_Client, ServerlessSpec, PodSpec
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain_core.documents import Document
-from uuid import uuid4
 from config.config import PipelineConfiguration, get_pipeline_config
-
-from logging_utils.log_helper import get_logger
 from logging import Logger
+from logging_utils.log_helper import get_logger
 
 APP_CONFIG: PipelineConfiguration = get_pipeline_config()
 logger: Logger = get_logger(__name__)
 
 pinecone_api = os.getenv("PINECONE_API")
 openai_api_key = os.getenv("OPENAI_API_KEY")
+
+if not pinecone_api:
+    logger.error("PINECONE_API is not set in the environment variables.")
+    raise OSError("PINECONE_API is required but not set in the environment.")
+if not openai_api_key:
+    logger.error("OPENAI_API_KEY is not set in the environment variables.")
+    raise OSError("OPENAI_API_KEY is required but not set in the environment.")
 
 
 class PineconeHelper:
@@ -36,8 +40,10 @@ class PineconeHelper:
             model=self.embed_model,
             api_key=openai_api_key,
         )
+        self.index = None
+        logger.info(f"PineconeHelper initialized with index '{self.index_name}'.")
 
-    def pinecone_index(self):
+    def pinecone_index(self) -> Pinecone_Client:
         """
         Configures the Pinecone index based on the instance's index name. Creates the index if it does not exist.
 
@@ -81,59 +87,115 @@ class PineconeHelper:
             data_file (Union[Dict, List[Dict]]): The data to upsert into the index.
         """
 
-        self.index.upsert(data_file, namespace=f"{namespace}")
-        logger.info("upserted datafiles correctly.")
+        try:
+            self.index.upsert(data_file, namespace=namespace or "")
+            logger.info(
+                f"Successfully upserted data into index '{self.index_name}' under namespace '{namespace}'."
+            )
+        except Exception as e:
+            logger.exception(
+                f"Failed to upsert data into Pinecone index '{self.index_name}': {e}"
+            )
+            raise RuntimeError("Failed to upsert data into Pinecone index.") from e
 
     def langchain_upload_documents_to_vdb(
         self, docs: List[Document], namespace: Optional[str] = None
     ):
-        uuids = [str(uuid4()) for _ in range(len(docs))]
-        if namespace is None:
-            namespace = ""
+        try:
+            uuids = [str(uuid4()) for _ in range(len(docs))]
+            namespace = namespace or ""
 
-        pc_vectorstore = PineconeVectorStore(
-            pinecone_api_key=pinecone_api,
-            index_name=self.index_name,
-            embedding=self.embedding,
-            namespace=namespace,
-        )
+            pc_vectorstore = PineconeVectorStore(
+                pinecone_api_key=pinecone_api,
+                index_name=self.index_name,
+                embedding=self.embedding,
+                namespace=namespace,
+            )
 
-        logger.info(
-            f"Initialised vectorstore {pc_vectorstore} with namespace '{namespace}'."
-        )
-        pc_vectorstore.add_documents(documents=docs, ids=uuids)
-        logger.info("Documents successfully uploaded to Pinecone vectorstore.")
+            logger.info(
+                f"Initialized vector store with namespace '{namespace}' for index '{self.index_name}'."
+            )
+            pc_vectorstore.add_documents(documents=docs, ids=uuids)
+            logger.info("Documents successfully uploaded to Pinecone vectorstore.")
+        except Exception as e:
+            logger.exception(f"Failed to upload documents to Pinecone vectorstore: {e}")
+            raise RuntimeError(
+                "Failed to upload documents to Pinecone vectorstore."
+            ) from e
 
-    def langchain_pinecone_vectorstore(self, embeddings):
-        vectorstore = PineconeVectorStore(
-            index_name=self.index_name,
-            embedding=embeddings,
-            pinecone_api_key=pinecone_api,
-        )
-        # logger.info(
-        #     f"initialised vectore store: {vectorstore} using index: {self.index_name}"
-        # )
-        return vectorstore
+    def langchain_pinecone_vectorstore(
+        self, embeddings: OpenAIEmbeddings
+    ) -> PineconeVectorStore:
+        """
+        Initializes and returns a Pinecone vector store using LangChain.
 
-    def pincecone_stats(self):
+        Args:
+            embeddings (OpenAIEmbeddings): The embeddings model to use.
+
+        Returns:
+            PineconeVectorStore: The initialized vector store.
+        """
+        try:
+            vectorstore = PineconeVectorStore(
+                index_name=self.index_name,
+                embedding=embeddings,
+                pinecone_api_key=pinecone_api,
+            )
+            logger.info(
+                f"Initialized Pinecone vector store for index '{self.index_name}'."
+            )
+            return vectorstore
+        except Exception as e:
+            logger.exception(f"Failed to initialize Pinecone vector store: {e}")
+            raise RuntimeError("Failed to initialize Pinecone vector store.") from e
+
+    def pinecone_stats(self) -> str:
+        """
+        Retrieves and returns the statistics for the Pinecone index.
+
+        Returns:
+            str: A string representation of the index stats.
+        """
         self.index = self.pc.Index(self.index_name)
         index_stats = self.index.describe_index_stats()
+        logger.info(f"Retrieved stats for Pinecone index '{self.index_name}'.")
         return f"Index stats: {index_stats}"
 
     def pinecone_delete_index_by_ids(
         self,
         namespace: Optional[str] = None,
         ids: Optional[List[str]] = None,
-    ):
+    ) -> None:
+        """
+        Deletes specific entries from the Pinecone index by their IDs.
+
+        Args:
+            namespace (Optional[str]): The namespace within the index.
+            ids (Optional[List[str]]): The IDs of the entries to delete.
+        """
         vectorstore = PineconeVectorStore(
             index_name=self.index_name,
             pinecone_api_key=pinecone_api,
             namespace=namespace,
             ids=ids,
         )
-
         vectorstore.delete()
+        logger.info(
+            f"Deleted IDs from namespace '{namespace}' in index '{self.index_name}'."
+        )
 
-    def pinecone_delete_index_by_namespace(self, namespace: Optional[str] = None):
+    def pinecone_delete_index_by_namespace(
+        self, namespace: Optional[str] = None
+    ) -> None:
+        """
+        Deletes all entries within a specific namespace in the Pinecone index.
+
+        Args:
+            namespace (Optional[str]): The namespace to delete.
+        """
+
         index = self.pc.Index(name=self.index_name)
         index.delete(delete_all=True, namespace=namespace)
+        logger.info(
+            f"Deleted all entries in namespace '{namespace}' from index '{self.index_name}'."
+        )

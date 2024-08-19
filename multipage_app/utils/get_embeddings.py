@@ -11,6 +11,10 @@ logger: Logger = get_logger(__name__)
 APP_CONFIG: PipelineConfiguration = get_pipeline_config()
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
+if not openai_api_key:
+    logger.error("OPENAI_API_KEY is not set in the environment variables.")
+    raise OSError("OPENAI_API_KEY is required but not set in the environment.")
+
 
 class GenerateEmbeddings:
     def __init__(self) -> None:
@@ -56,18 +60,36 @@ class GenerateEmbeddings:
         self, chunks: List[Document]
     ) -> List[List[float]]:
         """
-        Generates embeddings for the content chunks using OpenAI's embedding model and creates a new dictionary.
+        Generates embeddings for the content chunks using LangChain's embedding model.
+
+        :param chunks: List of Document objects representing content chunks.
+        :return: List of embeddings for each chunk.
+        :raises: RuntimeError if embedding generation fails.
         """
+        if not chunks:
+            logger.warning("No document chunks provided for embedding generation.")
+            return []
+
         embeddings = []
 
-        for chunk in chunks:
-            embedding = self.langchain_openai_embedding.embed_documents(
-                chunk.page_content
-            )
-            embedding.append(embedding)
+        try:
+            for chunk in chunks:
+                embedding = self.langchain_openai_embedding.embed_documents(
+                    chunk.page_content
+                )
+                embeddings.append(embedding)
+
+            logger.info(f"Generated embeddings for {len(chunks)} document chunks.")
+        except Exception as e:
+            logger.exception(f"Error generating embeddings with LangChain: {e}")
+            raise RuntimeError("Failed to generate embeddings using LangChain.") from e
 
         return embeddings
 
-    def langchain_embedding_model(self):
-        embeddings = self.langchain_openai_embedding
-        return embeddings
+    def langchain_embedding_model(self) -> OpenAIEmbeddings:
+        """
+        Returns the LangChain OpenAIEmbeddings instance.
+
+        :return: OpenAIEmbeddings instance.
+        """
+        return self.langchain_openai_embedding
