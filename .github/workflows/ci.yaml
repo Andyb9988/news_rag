@@ -6,7 +6,10 @@
 
 name: ci-python-unittest-linting
 
-on: [push]
+on:
+  push:
+    branches:
+      - develop
 
 jobs:
   build:
