@@ -44,7 +44,7 @@ def get_pipeline_config() -> PipelineConfiguration:
 
     if app_env == "development":
         return development
-    elif app_env == "production":
+    if app_env == "production":
         return production
     else:
         raise ValueError(f"Pipeline configuration not found for APP_ENV: {app_env}")
