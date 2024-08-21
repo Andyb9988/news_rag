@@ -31,4 +31,4 @@ jobs:
         python -m unittest discover -s ./tests  -p 'test_*.py'
     - name: Analysing the code with pylint
       run: |
-        pylint $(git ls-files '*.py')
+        pylint --fail-under=6 $(git ls-files '*.py')

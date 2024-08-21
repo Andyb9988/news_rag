@@ -7,6 +7,19 @@ st.set_page_config(
 
 
 def main():
+    """
+    The main function for the Generative AI News Summariser application.
+
+    This function sets up the Streamlit web application interface. It includes the title and introductory
+    text that guides users on how to use the news summarization feature. Users are instructed to search for
+    news on a specific topic, which will then be processed and stored in a vector database. After the news
+    articles are loaded, the user can interact with a chatbot to generate summaries based on their queries.
+
+    The function includes:
+    - A title for the app.
+    - Instructions on how to search for news.
+    - Guidance on using the chatbot to summarise the news.
+    """
     st.title("Generative AI News Summariser📰")
 
     st.write("### Welcome to the latest and greatest Generative AI application!")
