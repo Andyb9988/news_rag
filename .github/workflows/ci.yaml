@@ -7,7 +7,7 @@
 name: ci-python-unittest-linting
 
 on:
-  push:
+  pull_request:
     branches:
       - develop
 
